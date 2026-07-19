@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boxly-Tu inventario en orden, siempre</title>
+<meta name="description" content="Boxly es la app de control de inventario pensada para kioscos, distribuidoras, tiendas online y talleres. Controlá tu stock desde cualquier lugar.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<!-- Styles -->
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-paper text-ink font-sans antialiased">
+
+<!-- ============ NAV ============ -->
+<header id="siteHeader" class="fixed top-0 left-0 right-0 z-50 site-nav">
+  <nav class="mx-auto max-w-7xl flex items-center justify-between gap-4 px-6 py-4">
+    <a href="#inicio" class="flex items-center gap-0.5 shrink-0 logo-lockup">
+      <span class="font-display font-extrabold text-2xl tracking-tight text-white">B</span>
+      <span class="logo-cube" aria-hidden="true">
+        <svg viewBox="0 0 100 100" class="h-6 w-6 sm:h-7 sm:w-7">
+          <polygon points="50,6 88,27 50,48 12,27" class="cube-top"></polygon>
+          <polygon points="12,27 50,48 50,90 12,69" class="cube-left"></polygon>
+          <polygon points="88,27 50,48 50,90 88,69" class="cube-right"></polygon>
+        </svg>
+      </span>
+      <span class="font-display font-extrabold text-2xl tracking-tight text-white">XLY</span>
+    </a>
+
+    <ul class="hidden lg:flex items-center gap-9 font-medium text-sm text-white/70">
+      <li><a href="#inicio" data-nav class="nav-link is-active">Inicio</a></li>
+      <li><a href="#caracteristicas" data-nav class="nav-link">Características</a></li>
+      <li><a href="#beneficios" data-nav class="nav-link">Beneficios</a></li>
+      <li><a href="#precios" data-nav class="nav-link">Precios</a></li>
+      <li><a href="#contacto" data-nav class="nav-link">Contacto</a></li>
+    </ul>
+
+    <div class="flex items-center gap-3">
+      <a href="#contacto" class="hidden sm:inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-deep hover:shadow-lg hover:shadow-accent/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        Solicitar Demo
+      </a>
+      <button id="menuToggle" aria-label="Abrir menú" aria-expanded="false" class="lg:hidden flex h-10 w-10 items-center justify-center rounded-xl text-white hover:bg-white/10 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        <i data-lucide="menu" class="h-6 w-6" id="iconMenu"></i>
+        <i data-lucide="x" class="h-6 w-6 hidden" id="iconClose"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+
+<!-- Mobile menu -->
+<div id="mobileBackdrop" class="fixed inset-0 z-40 bg-dark/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300 lg:hidden"></div>
+<div id="mobilePanel" class="fixed top-0 right-0 z-50 h-full w-[78%] max-w-xs bg-dark translate-x-full transition-transform duration-300 ease-out lg:hidden shadow-2xl">
+  <div class="flex items-center justify-between px-6 py-5 border-b border-white/10">
+    <span class="flex items-center gap-0.5">
+      <span class="font-display font-extrabold text-lg text-white">ST</span>
+      <span class="logo-cube" aria-hidden="true">
+        <svg viewBox="0 0 100 100" class="h-4 w-4">
+          <polygon points="50,6 88,27 50,48 12,27" class="cube-top"></polygon>
+          <polygon points="12,27 50,48 50,90 12,69" class="cube-left"></polygon>
+          <polygon points="88,27 50,48 50,90 88,69" class="cube-right"></polygon>
+        </svg>
+      </span>
+      <span class="font-display font-extrabold text-lg text-white">KY</span>
+    </span>
+    <button id="mobileClose" aria-label="Cerrar menú" class="flex h-9 w-9 items-center justify-center rounded-lg text-white hover:bg-white/10 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+      <i data-lucide="x" class="h-5 w-5"></i>
+    </button>
+  </div>
+  <ul class="flex flex-col gap-1 px-4 py-6 font-medium text-white/80">
+    <li><a href="#inicio" class="mobile-link">Inicio</a></li>
+    <li><a href="#caracteristicas" class="mobile-link">Características</a></li>
+    <li><a href="#beneficios" class="mobile-link">Beneficios</a></li>
+    <li><a href="#precios" class="mobile-link">Precios</a></li>
+    <li><a href="#contacto" class="mobile-link">Contacto</a></li>
+  </ul>
+  <div class="px-6">
+    <a href="#contacto" class="flex items-center justify-center rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white hover:bg-white hover:text-deep transition">Solicitar Demo</a>
+  </div>
+</div>
+
+<main>
+<!-- ============ HERO ============ -->
+<section id="inicio" class="relative overflow-hidden bg-dark pt-32 pb-24 sm:pt-40 sm:pb-32">
+  <div class="absolute inset-0 warehouse-pattern opacity-40" aria-hidden="true"></div>
+  <div class="absolute inset-0 bg-gradient-to-b from-dark/95 via-dark/92 to-dark"></div>
+  <div class="absolute -top-32 -right-20 h-96 w-96 rounded-full bg-accent/20 blur-[100px] blob-anim"></div>
+  <div class="absolute top-1/2 -left-32 h-80 w-80 rounded-full bg-deep/30 blur-[110px] blob-anim" style="animation-delay:-4s"></div>
+
+  <div class="relative mx-auto max-w-7xl px-6 grid lg:grid-cols-2 gap-16 items-center">
+    <div data-reveal>
+      <span class="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-mono font-medium text-white/80 border border-white/10">
+        <i data-lucide="sparkles" class="h-3.5 w-3.5 text-accent"></i>
+        Hecho para pequeños negocios
+      </span>
+      <h1 class="mt-6 font-display text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold leading-[1.08] tracking-tight text-white">
+        Tu inventario en orden, <span class="text-accent">siempre.</span>
+      </h1>
+      <p class="mt-6 text-lg text-white/70 max-w-md leading-relaxed">
+        Boxly es tu asistente inteligente que te ayuda a controlar el inventario, automatizar procesos y tomar mejores decisiones.
+      </p>
+      <div class="mt-9 flex flex-wrap items-center gap-4">
+        <button class="inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-accent/90 hover:shadow-xl hover:shadow-accent/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+          <i data-lucide="play-circle" class="h-4 w-4"></i>
+          Ver Video
+        </button>
+        <a href="#contacto" class="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+          Solicitar Demo
+          <i data-lucide="arrow-right" class="h-4 w-4"></i>
+        </a>
+      </div>
+
+      <div class="mt-12">
+        <p class="text-xs font-mono uppercase tracking-wider text-white/40 mb-3">Disponible en</p>
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-3 text-white/60">
+          <span class="flex items-center gap-1.5 text-sm avail-icon"><i data-lucide="globe" class="h-4 w-4"></i>Web</span>
+          <span class="flex items-center gap-1.5 text-sm avail-icon"><i data-lucide="app-window" class="h-4 w-4"></i>Windows</span>
+          <span class="flex items-center gap-1.5 text-sm avail-icon"><i data-lucide="laptop" class="h-4 w-4"></i>Mac</span>
+          <span class="flex items-center gap-1.5 text-sm avail-icon"><i data-lucide="smartphone" class="h-4 w-4"></i>Android</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="relative flex justify-center lg:justify-end" data-reveal style="transition-delay:120ms">
+      <!-- Radar pulse rings -->
+      <div class="radar-wrap">
+        <span class="radar-ring"></span>
+        <span class="radar-ring" style="animation-delay:1s"></span>
+        <span class="radar-ring" style="animation-delay:2s"></span>
+      </div>
+
+      <div class="absolute -top-4 left-2 float-icon rounded-2xl bg-white shadow-xl p-3 badge-glow">
+        <i data-lucide="bar-chart-3" class="h-5 w-5 text-accent"></i>
+      </div>
+      <div class="absolute top-1/3 -right-4 float-icon float-icon-delay-1 rounded-2xl bg-white shadow-xl p-3 badge-glow">
+        <i data-lucide="box" class="h-5 w-5 text-greendark"></i>
+      </div>
+      <div class="absolute bottom-10 -left-4 float-icon float-icon-delay-2 rounded-2xl bg-white shadow-xl p-3 badge-glow">
+        <i data-lucide="clipboard-check" class="h-5 w-5 text-deep"></i>
+      </div>
+
+      <div class="relative mascot-float" id="mascotParallax">
+        <div class="absolute -top-8 right-2 sm:right-10 z-10 speech-bubble rounded-2xl rounded-br-sm bg-white px-4 py-3 shadow-xl max-w-[210px]">
+          <p class="text-sm font-semibold text-ink leading-snug">¡Hola! Soy Boxly, tu asistente de inventario.</p>
+        </div>
+        <img src="img/stoky-hero.png" alt="Stoky, la mascota de la app, saludando" class="relative z-[1] w-64 sm:w-80 lg:w-[26rem] drop-shadow-2xl">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ QUICK FEATURES BAR ============ -->
+<section id="caracteristicas" class="relative -mt-1 border-b border-slate-100 bg-white py-14">
+  <div class="mx-auto max-w-7xl px-6">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
+      <div class="feature-pill" data-reveal>
+        <div class="feature-icon"><i data-lucide="shield-check" class="h-5 w-5"></i></div>
+        <h3 class="font-display font-bold text-sm mt-3">Control total</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">Monitoreá tu inventario en tiempo real.</p>
+      </div>
+      <div class="feature-pill" data-reveal style="transition-delay:60ms">
+        <div class="feature-icon feature-icon-ping"><i data-lucide="bell-ring" class="h-5 w-5"></i></div>
+        <h3 class="font-display font-bold text-sm mt-3">Alertas inteligentes</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">Notificaciones de stock bajo y más.</p>
+      </div>
+      <div class="feature-pill" data-reveal style="transition-delay:120ms">
+        <div class="feature-icon"><i data-lucide="scan-line" class="h-5 w-5"></i></div>
+        <h3 class="font-display font-bold text-sm mt-3">Escáner integrado</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">Escaneá códigos de barras y QR.</p>
+      </div>
+      <div class="feature-pill" data-reveal style="transition-delay:180ms">
+        <div class="feature-icon"><i data-lucide="zap" class="h-5 w-5"></i></div>
+        <h3 class="font-display font-bold text-sm mt-3">Reportes al instante</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">Genera reportes con un solo clic.</p>
+      </div>
+      <div class="feature-pill col-span-2 sm:col-span-1" data-reveal style="transition-delay:240ms">
+        <div class="feature-icon"><i data-lucide="cloud" class="h-5 w-5"></i></div>
+        <h3 class="font-display font-bold text-sm mt-3">Acceso desde todos lados</h3>
+        <p class="text-xs text-slate-500 mt-1 leading-relaxed">En la nube, disponible 24/7.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DASHBOARD PREVIEW ============ -->
+<section id="beneficios" class="py-24 sm:py-32 bg-paper">
+  <div class="mx-auto max-w-7xl px-6">
+    <div class="text-center max-w-2xl mx-auto mb-14" data-reveal>
+      <span class="eyebrow">El panel de Boxly</span>
+      <h2 class="mt-3 font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-ink">Todo lo que necesitás, en un solo lugar</h2>
+      <p class="mt-4 text-slate-500 leading-relaxed">Un dashboard pensado para decidir rápido: qué reponer, qué se mueve y qué se está por terminar.</p>
+    </div>
+
+    <!-- Dashboard mockup -->
+    <div class="relative rounded-3xl border border-slate-200 bg-white shadow-[0_30px_80px_-30px_rgba(15,44,76,0.35)] overflow-hidden" data-reveal>
+      <div class="absolute top-6 right-6 sm:top-10 sm:right-10 z-20 stamp-badge">
+        <span class="flex items-center gap-1.5 rounded-full bg-greendark text-white text-xs font-semibold px-3 py-1.5 shadow-lg">
+          <i data-lucide="check-circle-2" class="h-3.5 w-3.5"></i>
+          ¡Stock actualizado!
+        </span>
+      </div>
+
+      <div class="flex flex-col lg:flex-row">
+        <!-- Sidebar -->
+        <aside class="hidden lg:flex flex-col w-56 shrink-0 bg-dark px-4 py-6">
+          <div class="flex items-center gap-0.5 px-2 mb-6">
+            <span class="font-display font-bold text-white text-sm">B</span>
+            <span class="logo-cube" aria-hidden="true">
+              <svg viewBox="0 0 100 100" class="h-3.5 w-3.5">
+                <polygon points="50,6 88,27 50,48 12,27" class="cube-top"></polygon>
+                <polygon points="12,27 50,48 50,90 12,69" class="cube-left"></polygon>
+                <polygon points="88,27 50,48 50,90 88,69" class="cube-right"></polygon>
+              </svg>
+            </span>
+            <span class="font-display font-bold text-white text-sm">XLY</span>
+          </div>
+          <nav class="flex flex-col gap-1">
+            <a class="sidebar-link active"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>Dashboard</a>
+            <a class="sidebar-link"><i data-lucide="box" class="h-4 w-4"></i>Productos</a>
+            <a class="sidebar-link"><i data-lucide="arrow-down-to-line" class="h-4 w-4"></i>Entradas</a>
+            <a class="sidebar-link"><i data-lucide="arrow-up-from-line" class="h-4 w-4"></i>Salidas</a>
+            <a class="sidebar-link"><i data-lucide="warehouse" class="h-4 w-4"></i>Inventario</a>
+            <a class="sidebar-link"><i data-lucide="bar-chart-2" class="h-4 w-4"></i>Reportes</a>
+            <a class="sidebar-link"><i data-lucide="alert-triangle" class="h-4 w-4"></i>Alertas</a>
+            <a class="sidebar-link"><i data-lucide="users" class="h-4 w-4"></i>Usuarios</a>
+            <a class="sidebar-link"><i data-lucide="settings" class="h-4 w-4"></i>Configuración</a>
+          </nav>
+          <div class="mt-auto flex items-center gap-2.5 pt-4 border-t border-white/10">
+            <span class="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white text-xs font-mono font-semibold">A</span>
+            <div class="leading-tight">
+              <p class="text-xs font-semibold text-white">Admin</p>
+              <p class="text-[10px] text-white/40">Administrador</p>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Main panel -->
+        <div class="flex-1 p-5 sm:p-8 bg-soft/40">
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div class="stat-card">
+              <p class="stat-label">Productos totales</p>
+              <p class="stat-value" data-count-to="1245">0</p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-label">Stock total</p>
+              <p class="stat-value"><span data-count-to="8560">0</span> u.</p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-label">Valor de inventario</p>
+              <p class="stat-value">$<span data-count-to="125430">0</span></p>
+            </div>
+            <div class="stat-card">
+              <p class="stat-label">Alertas activas</p>
+              <p class="stat-value text-red-500" data-count-to="12">0</p>
+            </div>
+          </div>
+
+          <div class="grid lg:grid-cols-5 gap-4">
+            <div class="lg:col-span-2 rounded-2xl bg-white border border-slate-100 p-5">
+              <p class="text-sm font-display font-bold text-ink mb-4">Inventario por categoría</p>
+              <div class="flex items-center gap-5">
+                <svg viewBox="0 0 42 42" class="h-28 w-28 -rotate-90 shrink-0 donut-chart">
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#EAF2FB" stroke-width="6"></circle>
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#1D4E89" stroke-width="6" stroke-dasharray="35 65" stroke-linecap="round"></circle>
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#3B82F6" stroke-width="6" stroke-dasharray="25 75" stroke-dashoffset="-35" stroke-linecap="round"></circle>
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#0FA76F" stroke-width="6" stroke-dasharray="20 80" stroke-dashoffset="-60" stroke-linecap="round"></circle>
+                  <circle cx="21" cy="21" r="15.9" fill="none" stroke="#94A3B8" stroke-width="6" stroke-dasharray="20 80" stroke-dashoffset="-80" stroke-linecap="round"></circle>
+                </svg>
+                <ul class="text-xs font-mono text-slate-500 space-y-2">
+                  <li class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-deep"></span>Electrónicos 35%</li>
+                  <li class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-accent"></span>Oficina 25%</li>
+                  <li class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-green"></span>Hogar 20%</li>
+                  <li class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-slate-400"></span>Otros 20%</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="lg:col-span-3 rounded-2xl bg-white border border-slate-100 p-5">
+              <p class="text-sm font-display font-bold text-ink mb-4">Movimientos recientes</p>
+              <ul class="space-y-3">
+                <li class="flex items-center justify-between text-sm move-row">
+                  <span class="flex items-center gap-2 text-slate-600"><i data-lucide="arrow-down-to-line" class="h-3.5 w-3.5 text-greendark"></i>Entrada de productos</span>
+                  <span class="font-mono text-xs text-slate-400">+120</span>
+                </li>
+                <li class="flex items-center justify-between text-sm move-row">
+                  <span class="flex items-center gap-2 text-slate-600"><i data-lucide="arrow-up-from-line" class="h-3.5 w-3.5 text-red-400"></i>Salida de productos</span>
+                  <span class="font-mono text-xs text-slate-400">−35</span>
+                </li>
+                <li class="flex items-center justify-between text-sm move-row">
+                  <span class="flex items-center gap-2 text-slate-600"><i data-lucide="settings-2" class="h-3.5 w-3.5 text-accent"></i>Ajuste de inventario</span>
+                  <span class="font-mono text-xs text-slate-400">+8</span>
+                </li>
+                <li class="flex items-center justify-between text-sm move-row">
+                  <span class="flex items-center gap-2 text-slate-600"><i data-lucide="arrow-down-to-line" class="h-3.5 w-3.5 text-greendark"></i>Entrada de productos</span>
+                  <span class="font-mono text-xs text-slate-400">+200</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="mt-4 rounded-2xl bg-white border border-slate-100 p-5">
+            <p class="text-sm font-display font-bold text-ink mb-4">Productos con stock bajo</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-xs font-mono uppercase text-slate-400 border-b border-slate-100">
+                    <th class="pb-2 pr-4">Producto</th>
+                    <th class="pb-2 pr-4">Categoría</th>
+                    <th class="pb-2 pr-4">Stock actual</th>
+                    <th class="pb-2 pr-4">Stock mínimo</th>
+                    <th class="pb-2">Estado</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                  <tr class="table-row-hover">
+                    <td class="py-2.5 pr-4 text-ink">Cables HDMI 2m</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs text-slate-400">Electrónicos</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs">5</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs">10</td>
+                    <td class="py-2.5"><span class="status-tag status-critical">Crítico</span></td>
+                  </tr>
+                  <tr class="table-row-hover">
+                    <td class="py-2.5 pr-4 text-ink">Toner HP 85A</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs text-slate-400">Oficina</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs">8</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs">15</td>
+                    <td class="py-2.5"><span class="status-tag status-low">Bajo</span></td>
+                  </tr>
+                  <tr class="table-row-hover">
+                    <td class="py-2.5 pr-4 text-ink">Mouse inalámbrico</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs text-slate-400">Electrónicos</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs">7</td>
+                    <td class="py-2.5 pr-4 font-mono text-xs">10</td>
+                    <td class="py-2.5"><span class="status-tag status-low">Bajo</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Benefits list + mascot -->
+    <div class="grid lg:grid-cols-2 gap-12 items-center mt-20">
+      <ul class="space-y-5" data-reveal>
+        <li class="benefit-item">
+          <span class="benefit-check"><i data-lucide="check" class="h-3.5 w-3.5"></i></span>
+          <div>
+            <p class="font-display font-bold text-ink">Fácil de usar e intuitivo</p>
+            <p class="text-sm text-slate-500 mt-0.5">Cargá una vez y dejá que Boxly haga las cuentas por vos.</p>
+          </div>
+        </li>
+        <li class="benefit-item">
+          <span class="benefit-check"><i data-lucide="check" class="h-3.5 w-3.5"></i></span>
+          <div>
+            <p class="font-display font-bold text-ink">Ahorra tiempo y reduce errores</p>
+            <p class="text-sm text-slate-500 mt-0.5">Alertas automáticas cuando el stock baja del mínimo.</p>
+          </div>
+        </li>
+        <li class="benefit-item">
+          <span class="benefit-check"><i data-lucide="check" class="h-3.5 w-3.5"></i></span>
+          <div>
+            <p class="font-display font-bold text-ink">Mejora el control de tu inventario</p>
+            <p class="text-sm text-slate-500 mt-0.5">Reportes claros para saber qué comprar y cuándo.</p>
+          </div>
+        </li>
+        <li class="benefit-item">
+          <span class="benefit-check"><i data-lucide="check" class="h-3.5 w-3.5"></i></span>
+          <div>
+            <p class="font-display font-bold text-ink">Toma decisiones basadas en datos</p>
+            <p class="text-sm text-slate-500 mt-0.5">Varios usuarios, un solo inventario actualizado.</p>
+          </div>
+        </li>
+        <li class="benefit-item">
+          <span class="benefit-check"><i data-lucide="check" class="h-3.5 w-3.5"></i></span>
+          <div>
+            <p class="font-display font-bold text-ink">Escalable para tu crecimiento</p>
+            <p class="text-sm text-slate-500 mt-0.5">De un kiosco a varias sucursales, sin cambiar de sistema.</p>
+          </div>
+        </li>
+      </ul>
+      <div class="flex justify-center lg:justify-end" data-reveal style="transition-delay:100ms">
+        <img src="img/stoky-check.png" alt="Stoky guiñando un ojo con un portapapeles" class="w-56 sm:w-64 mascot-float">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA INTERMEDIO ============ -->
+<section class="relative overflow-hidden bg-gradient-to-br from-deep to-dark py-20">
+  <div class="absolute -bottom-24 -left-24 h-80 w-80 rounded-full bg-accent/20 blur-[100px] blob-anim"></div>
+  <div class="relative mx-auto max-w-3xl px-6 text-center" data-reveal>
+    <span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 border border-white/10 cta-icon-pulse">
+      <i data-lucide="package-check" class="h-7 w-7 text-accent"></i>
+    </span>
+    <h2 class="mt-6 font-display text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Dejá que <span class="text-accent">Boxly</span> trabaje por vos</h2>
+    <p class="mt-3 text-white/70">Unite a cientos de empresas que ya tienen su inventario bajo control con Boxly.</p>
+    <a href="#contacto" class="mt-8 inline-flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-deep hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+      Comienza ahora
+      <i data-lucide="arrow-right" class="h-4 w-4"></i>
+    </a>
+    <p class="mt-4 text-xs font-mono text-white/40">Sin tarjeta de crédito · Cancelá cuando quieras</p>
+  </div>
+</section>
+
+<!-- ============ TRUST BAR ============ -->
+<section class="bg-white py-14 border-b border-slate-100">
+  <div class="mx-auto max-w-7xl px-6 grid grid-cols-2 sm:grid-cols-4 gap-8 text-center">
+    <div class="flex flex-col items-center gap-2 trust-item" data-reveal>
+      <i data-lucide="shield-check" class="h-6 w-6 text-deep"></i>
+      <p class="text-sm font-semibold text-ink">Seguro y confiable</p>
+      <p class="text-xs text-slate-400">Tus datos siempre están protegidos.</p>
+    </div>
+    <div class="flex flex-col items-center gap-2 trust-item" data-reveal style="transition-delay:60ms">
+      <i data-lucide="headset" class="h-6 w-6 text-deep"></i>
+      <p class="text-sm font-semibold text-ink">Soporte 24/7</p>
+      <p class="text-xs text-slate-400">Estamos acá para ayudarte siempre.</p>
+    </div>
+    <div class="flex flex-col items-center gap-2 trust-item" data-reveal style="transition-delay:120ms">
+      <i data-lucide="cloud" class="h-6 w-6 text-deep"></i>
+      <p class="text-sm font-semibold text-ink">En la nube</p>
+      <p class="text-xs text-slate-400">Accedé desde cualquier dispositivo.</p>
+    </div>
+    <div class="flex flex-col items-center gap-2 trust-item" data-reveal style="transition-delay:180ms">
+      <i data-lucide="building-2" class="h-6 w-6 text-deep"></i>
+      <p class="text-sm font-semibold text-ink">+500 empresas</p>
+      <p class="text-xs text-slate-400">Ya confían en Boxly.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CÓMO FUNCIONA ============ -->
+<section class="py-24 sm:py-32 bg-paper">
+  <div class="mx-auto max-w-7xl px-6">
+    <div class="text-center max-w-2xl mx-auto mb-16" data-reveal>
+      <span class="eyebrow">Así de simple</span>
+      <h2 class="mt-3 font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-ink">Cómo funciona Boxly</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-10">
+      <div class="text-center" data-reveal>
+        <div class="step-number">01</div>
+        <h3 class="font-display font-bold text-lg mt-5">Cargá tu stock</h3>
+        <p class="text-sm text-slate-500 mt-2 leading-relaxed max-w-xs mx-auto">Sumá tus productos manualmente o con el escáner en minutos.</p>
+      </div>
+      <div class="text-center" data-reveal style="transition-delay:80ms">
+        <div class="step-number">02</div>
+        <h3 class="font-display font-bold text-lg mt-5">Registrá el movimiento</h3>
+        <p class="text-sm text-slate-500 mt-2 leading-relaxed max-w-xs mx-auto">Cada entrada y salida queda registrada al instante.</p>
+      </div>
+      <div class="text-center" data-reveal style="transition-delay:160ms">
+        <div class="step-number">03</div>
+        <h3 class="font-display font-bold text-lg mt-5">Controlá y reponé</h3>
+        <p class="text-sm text-slate-500 mt-2 leading-relaxed max-w-xs mx-auto">Boxly te avisa qué reponer antes de que sea tarde.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TESTIMONIOS ============ -->
+<section class="py-24 sm:py-32 bg-white">
+  <div class="mx-auto max-w-7xl px-6">
+    <div class="text-center max-w-2xl mx-auto mb-16" data-reveal>
+      <span class="eyebrow">Negocios reales</span>
+      <h2 class="mt-3 font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-ink">Lo que dicen nuestros clientes</h2>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="testimonial-card" data-reveal>
+        <p class="text-slate-600 leading-relaxed">"Antes perdía horas contando cajas a mano. Con Boxly sé lo que tengo con solo mirar el celular."</p>
+        <div class="flex items-center gap-3 mt-6">
+          <span class="avatar">M</span>
+          <div>
+            <p class="font-semibold text-ink text-sm">Marisa Gómez</p>
+            <p class="text-xs text-slate-400">Kiosco La Esquina</p>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card" data-reveal style="transition-delay:80ms">
+        <p class="text-slate-600 leading-relaxed">"Las alertas de stock bajo nos salvaron de quedarnos sin productos clave más de una vez."</p>
+        <div class="flex items-center gap-3 mt-6">
+          <span class="avatar">R</span>
+          <div>
+            <p class="font-semibold text-ink text-sm">Rodrigo Fernández</p>
+            <p class="text-xs text-slate-400">Distribuidora Fernández</p>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card" data-reveal style="transition-delay:160ms">
+        <p class="text-slate-600 leading-relaxed">"Manejo mi tienda online y mi taller desde el mismo lugar. Simple, rápido y sin errores."</p>
+        <div class="flex items-center gap-3 mt-6">
+          <span class="avatar">C</span>
+          <div>
+            <p class="font-semibold text-ink text-sm">Camila Torres</p>
+            <p class="text-xs text-slate-400">Taller CT Repuestos</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRECIOS ============ -->
+<section id="precios" class="py-24 sm:py-32 bg-soft">
+  <div class="mx-auto max-w-7xl px-6">
+    <div class="text-center max-w-2xl mx-auto mb-16" data-reveal>
+      <span class="eyebrow">Precios</span>
+      <h2 class="mt-3 font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-ink">Un plan para cada etapa de tu negocio</h2>
+    </div>
+    <div class="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+      <div class="pricing-card" data-reveal>
+        <h3 class="font-display font-bold text-xl text-ink">Free</h3>
+        <p class="text-sm text-slate-500 mt-1">Para empezar a ordenar tu stock.</p>
+        <p class="mt-6"><span class="text-4xl font-display font-extrabold text-ink">$0</span><span class="text-slate-400 text-sm"> /mes</span></p>
+        <ul class="mt-6 space-y-3 text-sm">
+          <li class="pricing-feature"><i data-lucide="check" class="h-4 w-4 text-greendark"></i>Hasta 100 productos</li>
+          <li class="pricing-feature"><i data-lucide="check" class="h-4 w-4 text-greendark"></i>1 usuario</li>
+          <li class="pricing-feature"><i data-lucide="check" class="h-4 w-4 text-greendark"></i>Alertas de stock bajo</li>
+          <li class="pricing-feature"><i data-lucide="check" class="h-4 w-4 text-greendark"></i>Acceso web</li>
+        </ul>
+        <a href="#contacto" class="mt-8 block text-center rounded-xl border border-slate-200 py-3 text-sm font-semibold text-ink hover:border-deep hover:text-deep transition">Empezar gratis</a>
+      </div>
+
+      <div class="pricing-card pricing-card-pro" data-reveal style="transition-delay:80ms">
+        <span class="pro-badge">Más elegido</span>
+        <h3 class="font-display font-bold text-xl text-white">PRO</h3>
+        <p class="text-sm text-white/60 mt-1">Para negocios que ya no dan abasto.</p>
+        <p class="mt-6"><span class="text-4xl font-display font-extrabold text-white">$14.900</span><span class="text-white/50 text-sm"> /mes</span></p>
+        <ul class="mt-6 space-y-3 text-sm">
+          <li class="pricing-feature-pro"><i data-lucide="check" class="h-4 w-4 text-accent"></i>Productos ilimitados</li>
+          <li class="pricing-feature-pro"><i data-lucide="check" class="h-4 w-4 text-accent"></i>Usuarios ilimitados</li>
+          <li class="pricing-feature-pro"><i data-lucide="check" class="h-4 w-4 text-accent"></i>Multi-depósito</li>
+          <li class="pricing-feature-pro"><i data-lucide="check" class="h-4 w-4 text-accent"></i>Escáner y reportes avanzados</li>
+          <li class="pricing-feature-pro"><i data-lucide="check" class="h-4 w-4 text-accent"></i>Soporte prioritario 24/7</li>
+        </ul>
+        <a href="#contacto" class="mt-8 block text-center rounded-xl bg-accent py-3 text-sm font-semibold text-white hover:bg-white hover:text-deep transition">Solicitar Demo</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="py-24 sm:py-32 bg-white">
+  <div class="mx-auto max-w-3xl px-6">
+    <div class="text-center mb-14" data-reveal>
+      <span class="eyebrow">Preguntas frecuentes</span>
+      <h2 class="mt-3 font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-ink">¿Tenés dudas? Empecemos por acá</h2>
+    </div>
+    <div class="space-y-3" data-reveal>
+      <details class="faq-item">
+        <summary>
+          <span>¿Necesito instalar algo para usar Boxly?</span>
+          <i data-lucide="plus" class="faq-icon"></i>
+        </summary>
+        <p>No. Podés usar Boxly directo desde el navegador. Si preferís, también hay versiones de escritorio para Windows y Mac, y app para Android.</p>
+      </details>
+      <details class="faq-item">
+        <summary>
+          <span>¿Qué tan seguros están mis datos?</span>
+          <i data-lucide="plus" class="faq-icon"></i>
+        </summary>
+        <p>Tu información se guarda encriptada en la nube, con copias de seguridad automáticas todos los días. Solo vos y tu equipo pueden acceder.</p>
+      </details>
+      <details class="faq-item">
+        <summary>
+          <span>¿Puedo manejar más de un depósito o sucursal?</span>
+          <i data-lucide="plus" class="faq-icon"></i>
+        </summary>
+        <p>Sí, el plan PRO permite crear múltiples depósitos y transferir stock entre ellos sin perder el historial de movimientos.</p>
+      </details>
+      <details class="faq-item">
+        <summary>
+          <span>¿El escáner funciona sin conexión a internet?</span>
+          <i data-lucide="plus" class="faq-icon"></i>
+        </summary>
+        <p>Sí. Podés escanear productos sin internet y Boxly sincroniza automáticamente los movimientos apenas recuperás la conexión.</p>
+      </details>
+      <details class="faq-item">
+        <summary>
+          <span>¿Puedo cancelar cuando quiera?</span>
+          <i data-lucide="plus" class="faq-icon"></i>
+        </summary>
+        <p>Sí, no hay contratos ni permanencia mínima. Cancelás desde tu cuenta en cualquier momento, sin llamadas ni trámites.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA FINAL / CONTACTO ============ -->
+<section id="contacto" class="relative overflow-hidden bg-dark py-24 sm:py-32">
+  <div class="absolute top-0 left-1/4 h-72 w-72 rounded-full bg-accent/25 blur-[110px] blob-anim"></div>
+  <div class="absolute bottom-0 right-1/4 h-72 w-72 rounded-full bg-green/20 blur-[110px] blob-anim" style="animation-delay:-3s"></div>
+  <div class="relative mx-auto max-w-2xl px-6 text-center" data-reveal>
+    <h2 class="font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-white">Ordená tu inventario esta semana</h2>
+    <p class="mt-4 text-white/70">Contanos sobre tu negocio y te mostramos cómo Boxly se adapta a tu día a día.</p>
+    <form class="mt-10 grid sm:grid-cols-2 gap-4 text-left" onsubmit="return false;">
+      <div class="sm:col-span-1">
+        <label class="contact-label" for="nombre">Nombre</label>
+        <input id="nombre" type="text" placeholder="Tu nombre" class="contact-input">
+      </div>
+      <div class="sm:col-span-1">
+        <label class="contact-label" for="negocio">Negocio</label>
+        <input id="negocio" type="text" placeholder="Nombre de tu negocio" class="contact-input">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="contact-label" for="email">Email</label>
+        <input id="email" type="email" placeholder="tuemail@negocio.com" class="contact-input">
+      </div>
+      <div class="sm:col-span-2">
+        <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-deep hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+          Solicitar Demo
+          <i data-lucide="arrow-right" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </form>
+  </div>
+</section>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="bg-dark border-t border-white/10 pt-16 pb-8">
+  <div class="mx-auto max-w-7xl px-6">
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
+      <div class="lg:col-span-1">
+        <a href="#inicio" class="flex items-center gap-0.5">
+          <span class="font-display font-extrabold text-lg text-white">ST</span>
+          <span class="logo-cube" aria-hidden="true">
+            <svg viewBox="0 0 100 100" class="h-4 w-4">
+              <polygon points="50,6 88,27 50,48 12,27" class="cube-top"></polygon>
+              <polygon points="12,27 50,48 50,90 12,69" class="cube-left"></polygon>
+              <polygon points="88,27 50,48 50,90 88,69" class="cube-right"></polygon>
+            </svg>
+          </span>
+          <span class="font-display font-extrabold text-lg text-white">KY</span>
+        </a>
+        <p class="text-sm text-white/50 mt-4 leading-relaxed max-w-xs">La forma más simple de controlar el inventario de tu negocio, sin importar su tamaño.</p>
+      </div>
+      <div>
+        <p class="footer-heading">Producto</p>
+        <ul class="footer-list">
+          <li><a href="#caracteristicas">Características</a></li>
+          <li><a href="#beneficios">Beneficios</a></li>
+          <li><a href="#precios">Precios</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-heading">Soporte</p>
+        <ul class="footer-list">
+          <li><a href="#">Centro de ayuda</a></li>
+          <li><a href="#">Guías de uso</a></li>
+          <li><a href="#">Estado del servicio</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-heading">Contacto</p>
+        <ul class="footer-list">
+          <li><a href="mailto:hola@boxly.app">hola@boxly.app</a></li>
+          <li><a href="#">+54 261 000 0000</a></li>
+          <li><a href="#contacto">Solicitar Demo</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="mt-14 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-white/40">
+      <p>© 2026 Boxly. Todos los derechos reservados.</p>
+      <div class="flex gap-6">
+        <a href="#" class="hover:text-white/70 transition">Privacidad</a>
+        <a href="#" class="hover:text-white/70 transition">Términos</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
