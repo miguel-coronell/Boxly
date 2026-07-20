@@ -15,32 +15,43 @@
 <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
 <!-- Firebase SDK (compat) — descomentar cuando tengas tu proyecto configurado en firebase-config.js -->
-<!-- <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script> -->
-<!-- <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script> -->
-<!-- <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script> -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script> 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script> 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script> 
 <script src="firebase-config.js"></script>
 
+<link rel="icon" href="../img/boxly-icon.png" type="image/png">
 <link rel="stylesheet" href="app.css">
 </head>
-<body class="bg-paper text-ink font-sans antialiased">
+<body class="bg-paper text-ink font-sans antialiased is-loading">
+
+<div id="preloader" aria-hidden="true">
+  <div class="pre-box">
+    <svg viewBox="0 0 120 120" fill="none">
+      <path class="pre-arrow a1" d="M10 34 Q 26 20 44 30" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a2" d="M6 60 H 46" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a3" d="M10 86 Q 26 100 44 90" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <g class="pre-cube">
+        <polygon points="60,28 96,44 96,80 60,96 24,80 24,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <polyline points="24,44 60,60 96,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <line x1="60" y1="60" x2="60" y2="96" stroke="#D7F205" stroke-width="3.5"/>
+      </g>
+    </svg>
+    <span class="pre-label">Cargando panel</span>
+  </div>
+</div>
 
 <div class="app-shell">
 
   <!-- ============ SIDEBAR ============ -->
   <aside id="sidebar" class="app-sidebar">
     <div class="sidebar-top">
-      <a href="#" class="flex items-center gap-0.5 shrink-0">
-        <span class="font-display font-extrabold text-lg text-white">Box</span>
-        <span class="logo-cube" aria-hidden="true">
-          <svg viewBox="0 0 100 100" class="h-4 w-4">
-            <polygon points="50,6 88,27 50,48 12,27" class="cube-top"></polygon>
-            <polygon points="12,27 50,48 50,90 12,69" class="cube-left"></polygon>
-            <polygon points="88,27 50,48 50,90 88,69" class="cube-right"></polygon>
-          </svg>
-        </span>
-        <span class="font-display font-extrabold text-lg text-white sidebar-label">ly</span>
+      <a href="#" class="flex items-center gap-2 shrink-0">
+        <img src="../img/boxly-icon.png" alt="Boxly" class="sidebar-logo-icon">
+        <span class="font-display font-extrabold text-lg text-white sidebar-label sidebar-logo-text"></span>
       </a>
       <button id="collapseToggle" class="collapse-btn" aria-label="Colapsar menú">
         <i data-lucide="panel-left-close" class="h-4 w-4"></i>
@@ -161,7 +172,7 @@
         </div>
 
         <div class="grid lg:grid-cols-5 gap-5 mt-5">
-          <div class="panel lg:col-span-2" data-reveal>
+          <div class="panel lg:col-span-2" id="dashCategoryPanel" data-reveal>
             <div class="panel-header">
               <p class="panel-title">Inventario por categoría</p>
             </div>
@@ -433,7 +444,7 @@
             </div>
 
             <div class="report-columns">
-              <p class="form-label" style="margin-top:0; width:100%">Columnas a incluir en el PDF</p>
+              <p class="form-label" style="margin-top:0; width:100%">Columnas a incluir</p>
               <label class="checkbox-chip"><input type="checkbox" id="colFecha" checked>Fecha</label>
               <label class="checkbox-chip"><input type="checkbox" id="colTipo" checked>Tipo</label>
               <label class="checkbox-chip"><input type="checkbox" id="colProducto" checked>Producto</label>
@@ -444,10 +455,16 @@
 
             <div class="flex items-center justify-between mt-4 flex-wrap gap-3">
               <p class="text-xs text-slate-400" id="repResultCount">0 movimientos encontrados</p>
-              <button id="repGenerarPdf" class="btn-primary">
-                <i data-lucide="file-down" class="h-4 w-4"></i>
-                Descargar PDF
-              </button>
+              <div class="flex items-center gap-2.5 flex-wrap">
+                <button id="repGenerarExcel" class="btn-secondary">
+                  <i data-lucide="file-spreadsheet" class="h-4 w-4"></i>
+                  Descargar Excel
+                </button>
+                <button id="repGenerarPdf" class="btn-primary">
+                  <i data-lucide="file-down" class="h-4 w-4"></i>
+                  Descargar PDF
+                </button>
+              </div>
             </div>
 
             <div class="overflow-x-auto mt-3">
@@ -461,7 +478,7 @@
             <p id="repEmptyState" class="empty-state hidden">No hay movimientos con esos filtros.</p>
           </div>
 
-          <div class="panel lg:col-span-2">
+          <div class="panel lg:col-span-2" id="panelFirmas">
             <div class="panel-header">
               <p class="panel-title">Firma digital para auditorías</p>
               <label class="toggle-row" style="margin-top:0">
@@ -516,7 +533,7 @@
       <section id="section-usuarios" class="app-section">
         <div class="panel">
           <div class="table-toolbar">
-            <p class="text-sm text-slate-500">Gestioná quién tiene acceso a tu cuenta de Stoky.</p>
+            <p class="text-sm text-slate-500">Gestioná quién tiene acceso a tu cuenta de Boxly</p>
             <button id="openAddUser" class="btn-primary">
               <i data-lucide="user-plus" class="h-4 w-4"></i>
               Invitar usuario
@@ -616,11 +633,11 @@
                 <i data-lucide="sparkles" class="h-4 w-4"></i>
                 Ver tour de bienvenida
               </button>
-              <a href="mailto:soporte@boxlyapp.com" class="btn-secondary">
+              <a href="mailto:miguelcoronell@outlook.com" class="btn-secondary">
                 <i data-lucide="mail" class="h-4 w-4"></i>
-                soporte@boxlyapp.com
+                miguelcoronell@outlook.com
               </a>
-              <a href="https://wa.me/5492610000000" target="_blank" rel="noopener" class="btn-secondary">
+              <a href="https://wa.me/5492613863563" target="_blank" rel="noopener" class="btn-secondary">
                 <i data-lucide="message-circle" class="h-4 w-4"></i>
                 WhatsApp
               </a>
@@ -652,8 +669,8 @@
           <div class="panel">
             <div class="panel-header"><p class="panel-title">Contacto y soporte técnico</p></div>
             <ul class="contact-list mt-2">
-              <li><i data-lucide="mail" class="h-4 w-4"></i> soporte@boxlyapp.com</li>
-              <li><i data-lucide="phone" class="h-4 w-4"></i> +54 261 000-0000</li>
+              <li><i data-lucide="mail" class="h-4 w-4"></i> miguelcoronell@outlook.com</li>
+              <li><i data-lucide="phone" class="h-4 w-4"></i> +54 261 863-3563</li>
               <li><i data-lucide="clock" class="h-4 w-4"></i> Lun a Vie, 9 a 18 hs</li>
               <li><i data-lucide="book-open" class="h-4 w-4"></i> Centro de ayuda (próximamente)</li>
             </ul>
@@ -684,12 +701,13 @@
 
 <!-- ============ TOUR DE BIENVENIDA ============ -->
 <div id="tourBackdrop" class="tour-backdrop">
+  <div id="tourSpotlight" class="tour-spotlight" aria-hidden="true"></div>
   <div id="tourBox" class="tour-box" role="dialog" aria-modal="true" aria-label="Tour de bienvenida">
     <button id="tourSkip" class="tour-skip">Omitir</button>
     <div class="tour-icon-wrap">
       <span id="tourIcon" class="tour-icon"><i data-lucide="layout-dashboard"></i></span>
+      <h3 id="tourTitle" class="tour-title">Título del paso</h3>
     </div>
-    <h3 id="tourTitle" class="tour-title">Título del paso</h3>
     <p id="tourDesc" class="tour-desc">Descripción del paso.</p>
     <div id="tourDots" class="tour-dots"></div>
     <div class="tour-actions">

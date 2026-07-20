@@ -43,14 +43,19 @@
    estructura de datos que ya usa STORE en app.js.
    ========================================================================= */
 
-const FIREBASE_CONFIG = {
-  apiKey: "TU_API_KEY",
-  authDomain: "tu-proyecto.firebaseapp.com",
-  projectId: "tu-proyecto",
-  storageBucket: "tu-proyecto.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:xxxxxxxxxxxxxxxxxx"
-};
+
+
+ const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyCtxeMSEYnG0rKPGwwEHyLrSffTP9e0664",
+    authDomain: "boxly-io.firebaseapp.com",
+    projectId: "boxly-io",
+    storageBucket: "boxly-io.firebasestorage.app",
+    messagingSenderId: "363119991513",
+    appId: "1:363119991513:web:4efc156f3ed932b69d7cc8",
+    measurementId: "G-5JD56M00QE"
+  };
+
+
 
 let firebaseApp = null;
 let firebaseAuthInstance = null;
@@ -77,3 +82,5 @@ function initFirebase() {
 
 // Se intenta inicializar apenas carga el script (no falla si no está configurado).
 initFirebase();
+
+

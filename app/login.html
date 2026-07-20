@@ -14,14 +14,31 @@
 <script src="https://unpkg.com/lucide@latest"></script>
 
 <!-- Firebase SDK (compat) — descomentar cuando tengas tu proyecto configurado en firebase-config.js -->
-<!-- <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script> -->
-<!-- <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script> -->
-<!-- <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script> -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script> 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script> 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script> 
 <script src="firebase-config.js"></script>
 
+<link rel="icon" href="../img/boxly-icon.png" type="image/png">
 <link rel="stylesheet" href="app.css">
 </head>
-<body class="bg-paper text-ink font-sans antialiased">
+<body class="bg-paper text-ink font-sans antialiased is-loading">
+
+<div id="preloader" aria-hidden="true">
+  <div class="pre-box">
+    <svg viewBox="0 0 120 120" fill="none">
+      <path class="pre-arrow a1" d="M10 34 Q 26 20 44 30" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a2" d="M6 60 H 46" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a3" d="M10 86 Q 26 100 44 90" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <g class="pre-cube">
+        <polygon points="60,28 96,44 96,80 60,96 24,80 24,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <polyline points="24,44 60,60 96,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <line x1="60" y1="60" x2="60" y2="96" stroke="#D7F205" stroke-width="3.5"/>
+      </g>
+    </svg>
+    <span class="pre-label">Cargando Boxly</span>
+  </div>
+</div>
 
 <div class="auth-shell">
 
@@ -29,15 +46,7 @@
   <div class="auth-form-side">
     <div class="auth-card">
       <div class="auth-logo">
-        <span class="font-display font-extrabold text-2xl" style="color:var(--dark)">B</span>
-        <span class="logo-cube" aria-hidden="true">
-          <svg viewBox="0 0 100 100" class="h-5 w-5">
-            <polygon points="50,6 88,27 50,48 12,27" class="cube-top"></polygon>
-            <polygon points="12,27 50,48 50,90 12,69" class="cube-left"></polygon>
-            <polygon points="88,27 50,48 50,90 88,69" class="cube-right"></polygon>
-          </svg>
-        </span>
-        <span class="font-display font-extrabold text-2xl" style="color:var(--dark)">xly</span>
+        <img src="../img/boxly-logo.png" alt="Boxly" class="auth-logo-img">
       </div>
 
       <div class="auth-tabs">

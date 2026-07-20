@@ -18,6 +18,32 @@ const DEMO_USERS_KEY = "boxly_demo_users";
   } catch (err) { /* localStorage no disponible */ }
 })();
 
+/* ---------------------------- Preloader ---------------------------- */
+(function () {
+  const preloader = document.getElementById("preloader");
+  if (!preloader) return;
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function hidePreloader() {
+    document.body.classList.remove("is-loading");
+    preloader.classList.add("is-hidden");
+    setTimeout(() => preloader.remove(), 700);
+  }
+
+  if (prefersReducedMotion) {
+    window.addEventListener("load", hidePreloader);
+  } else {
+    const minDelay = new Promise((resolve) => setTimeout(resolve, 800));
+    const pageLoaded = new Promise((resolve) => {
+      if (document.readyState === "complete") resolve();
+      else window.addEventListener("load", resolve);
+    });
+    Promise.all([minDelay, pageLoaded]).then(hidePreloader);
+  }
+
+  setTimeout(hidePreloader, 4000);
+})();
+
 /* ---------------------------- Toasts ---------------------------- */
 function showToast(message, type = "success") {
   const container = document.getElementById("toastContainer");

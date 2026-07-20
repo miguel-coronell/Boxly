@@ -25,7 +25,7 @@ const CURRENT_USER = getAuthUser();
 if (!CURRENT_USER) {
   window.location.replace("login.html");
 }
-const CATEGORY_COLORS = ["#1D4E89", "#3B82F6", "#0FA76F", "#F59E0B", "#8B5CF6", "#94A3B8"];
+const CATEGORY_COLORS = ["#0E6B4F", "#22C55E", "#15803D", "#D7F205", "#B98A5E", "#94A3B8"];
 
 /* Mapea el valor en español del <select> de estado (inventario) al estado interno
    devuelto por productStatus() ("ok" | "low" | "critical"). Este mapeo es lo que
@@ -34,12 +34,37 @@ const STATUS_FILTER_MAP = { ok: "ok", bajo: "low", critico: "critical" };
 
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/* ---------------------------- Preloader ---------------------------- */
+(function () {
+  const preloader = document.getElementById("preloader");
+  if (!preloader) return;
+
+  function hidePreloader() {
+    document.body.classList.remove("is-loading");
+    preloader.classList.add("is-hidden");
+    setTimeout(() => preloader.remove(), 700);
+  }
+
+  if (prefersReducedMotion) {
+    window.addEventListener("load", hidePreloader);
+  } else {
+    const minDelay = new Promise((resolve) => setTimeout(resolve, 900));
+    const pageLoaded = new Promise((resolve) => {
+      if (document.readyState === "complete") resolve();
+      else window.addEventListener("load", resolve);
+    });
+    Promise.all([minDelay, pageLoaded]).then(hidePreloader);
+  }
+
+  setTimeout(hidePreloader, 4000);
+})();
+
 /* ---------------------------- Íconos base64 (encabezado PDF) ---------------------------- */
 const PDF_ICONS = {
   phone: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABI0lEQVR4nO2bwQ0CMQwEA6INWqIdaqAdWqIQeCGdouRQTl4Pknfe4GxGicPDtGaMMaYup6yFrrfHe/U7r+ddnk++wJGN9yhFnFWFW4vZfGSdETIB0aFVEiQCVGEVdS/RBfdYucvKY78l/ATMgq82stnno8VIm+CXo1084xlMEfDPWAAdgMYC6AA0FkAHoLEAOgCNBdABaCyADkBjAXQAGgugA9BYAB2AxgLoADQWQAegsQA6AI0F0AFoLIAOQGMBdACa8gJSR2R6ttMeGcMQI7AT0I+6ZM0E9SACZpslJJTvARZALDpreEQjTBEwutv9Zkebz+gJEuMRw5JRA5e/SP0dQD11e0iugOouK+rKekB0WJVUaROMCq18Hcr/Z8gYY0rzAXwMVmDaM0ziAAAAAElFTkSuQmCC",
   mail: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABYUlEQVR4nO2ZyxHCMAxEF4Y2aIl2qIF2aIlC4MBoyGRwLMf6xMm+EwfG1tsIEScAIYQQQgghhJDjcdJ+8Xp7vD0L8eD1vFf9zpqFRpQHdHVXAxhVXqjVvxjA6PLCkkcxgL3ICyWfS8+imiETxdoLphqC1pta01NHVwdMN8/oBosL0NUBU6K7wWq/pgBqVzkqhNo+Ld3Y3AHZIVjKAytngGxSKsZjLliLC10zIKobvOQBgyHoHYKnPGD0L+AVgrc8YHAfIFjOhQhxwew+QOjthkh5wCEAYH0I0fKAUwBAewgZ8oDhDPiHdi5o1vDCrQOmrJWIOGCFBAC0y0SdLsMCAPRSkUfr0ACAr9xUcP45+rlCeADCXDTr8VpaAMBPOvPZYmoAW4ABZBeQDQPILiCbwwfQdBjaypsgS4odsKX3fhaUfBZ/AnsJYcmjOgNGD6FWv2oIjhrCqHUTQgghhBBCiDsf5Wy2y2ca2isAAAAASUVORK5CYII=",
-  pin: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAB0ElEQVR4nO1ay7HCMAw0zGuDlmiHGmiHliiEd8pMxpM4trS7MkR7heizlmxZcimJRCKROC8uaoW3+/Nz9J/36yGzS6Kox+k9sMmgCvc4XoNFBEUo0vEaaCKuSGGlcJ1nyIey2WtcaxURMkYAI+DIcIvBDJk1IAS0DEUYyZTv3gPYzh/J8e4JLgP3lDPPbrRO+CnwbTCvlHcltr73fDvy/RrQCOgx4HZ/fvYcaP02qqcXJkHW42lkw7LKGCWHQsAai0GW3dry7XQEtLA2liGzB2GnQG0oIq8tMqhVWg/er8clsl8QchlCYLrLUA0GGYwKk94SQ6QIypYtyJqPnmOQidPfBWQEjK6mqjUujYBep35uLrAFz20wMSOURRBSH7wUVoQxUucfyohILLZIO0KIpocFX9EUZZHAkOsiYJZjy2OHOwJUqcCaQVArQRQJzH0FQkBUKiD0wiKAlQrs8ZvkMmQlQVFryCdDs+mBRwAqFVSTZ2k/oJcEZZlNIYCVCgy5tAiwpoL60UVIU7Q1HlfbQiVA8UbIC3oE9KZCxHujUoLnAovTkc0VCQHWVVQUVtJLDPOlhxU5GlMqm3EyJI+AI+fUvYXTp0AYeuuARCKRYOIfQm0gfs7KUh4AAAAASUVORK5CYII=",
-  building: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAA10lEQVR4nO2awRHCMAwEFYY20hLtUEPaoSUKSToA4hw+e273b/myI9t6pAoAAABSWVoXro9tVwZR8H49T3/P7R9BZgIB7gBu4gXclcVaLqFWVJdwfAfEC5AegarfWvPTUbm6/izxHYAAdwA3CHAHcBMvQP4MXn2iek6TVXQAApgEVYVmBQHuAG4Q4A7gJl4Ak2DPzUYkXgCToKrQrCDAHcANAtwB3MQLYBLsudmIxAtgElQVmhUEuAO4QYA7gJt4AfGToFTAiH+QfyP+CCDAHcBNvAAAgGgOIWI61a1PKjkAAAAASUVORK5CYII="
+  location: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAB0ElEQVR4nO1ay7HCMAw0zGuDlmiHGmiHliiEd8pMxpM4trS7MkR7heizlmxZcimJRCKROC8uaoW3+/Nz9J/36yGzS6Kox+k9sMmgCvc4XoNFBEUo0vEaaCKuSGGlcJ1nyIey2WtcaxURMkYAI+DIcIvBDJk1IAS0DEUYyZTv3gPYzh/J8e4JLgP3lDPPbrRO+CnwbTCvlHcltr73fDvy/RrQCOgx4HZ/fvYcaP02qqcXJkHW42lkw7LKGCWHQsAai0GW3dry7XQEtLA2liGzB2GnQG0oIq8tMqhVWg/er8clsl8QchlCYLrLUA0GGYwKk94SQ6QIypYtyJqPnmOQidPfBWQEjK6mqjUujYBep35uLrAFz20wMSOURRBSH7wUVoQxUucfyohILLZIO0KIpocFX9EUZZHAkOsiYJZjy2OHOwJUqcCaQVArQRQJzH0FQkBUKiD0wiKAlQrs8ZvkMmQlQVFryCdDs+mBRwAqFVSTZ2k/oJcEZZlNIYCVCgy5tAiwpoL60UVIU7Q1HlfbQiVA8UbIC3oE9KZCxHujUoLnAovTkc0VCQHWVVQUVtJLDPOlhxU5GlMqm3EyJI+AI+fUvYXTp0AYeuuARCKRYOIfQm0gfs7KUh4AAAAASUVORK5CYII=",
+  nit: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAA10lEQVR4nO2awRHCMAwEFYY20hLtUEPaoSUKSToA4hw+e273b/myI9t6pAoAAABSWVoXro9tVwZR8H49T3/P7R9BZgIB7gBu4gXclcVaLqFWVJdwfAfEC5AegarfWvPTUbm6/izxHYAAdwA3CHAHcBMvQP4MXn2iek6TVXQAApgEVYVmBQHuAG4Q4A7gJl4Ak2DPzUYkXgCToKrQrCDAHcANAtwB3MQLYBLsudmIxAtgElQVmhUEuAO4QYA7gJt4AfGToFTAiH+QfyP+CCDAHcBNvAAAgGgOIWI61a1PKjkAAAAASUVORK5CYII="
 };
 
 /* ---------------------------- Datos de demo ---------------------------- */
@@ -424,7 +449,7 @@ function categoryBreakdown() {
 
 function renderDonut(svgEl, legendEl) {
   const data = categoryBreakdown();
-  svgEl.innerHTML = `<circle cx="21" cy="21" r="15.9" fill="none" stroke="#EAF2FB" stroke-width="6"></circle>`;
+  svgEl.innerHTML = `<circle cx="21" cy="21" r="15.9" fill="none" stroke="#E9F8EE" stroke-width="6"></circle>`;
   let offset = 0;
   data.forEach((item, i) => {
     const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
@@ -1065,6 +1090,28 @@ function buildReportRangeLabel() {
   return `Hasta el ${fmt(end)}`;
 }
 
+/* Columnas disponibles para el reporte de movimientos. "width" se usa solo en el Excel. */
+const REPORT_COLUMN_DEFS = [
+  { id: "colFecha", header: "Fecha", key: "fecha", width: 14 },
+  { id: "colTipo", header: "Tipo", key: "tipo", width: 12 },
+  { id: "colProducto", header: "Producto", key: "producto", width: 30 },
+  { id: "colCategoria", header: "Categoría", key: "categoria", width: 18 },
+  { id: "colCantidad", header: "Cantidad", key: "cantidad", width: 12 },
+  { id: "colNota", header: "Nota", key: "nota", width: 34 }
+];
+
+function getReportColumnValue(key, m, p) {
+  switch (key) {
+    case "fecha": return formatDate(m.fecha);
+    case "tipo": return m.tipo === "entrada" ? "Entrada" : "Salida";
+    case "producto": return p ? p.nombre : "Producto eliminado";
+    case "categoria": return p ? p.categoria : "—";
+    case "cantidad": return `${m.tipo === "entrada" ? "+" : "-"}${m.cantidad}`;
+    case "nota": return m.nota || "—";
+    default: return "";
+  }
+}
+
 function generateMovementsPdf() {
   const filtered = getFilteredReportMovements();
   if (!filtered.length) {
@@ -1100,7 +1147,7 @@ function generateMovementsPdf() {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
-  doc.setTextColor("#0F172A");
+  doc.setTextColor("#0B2B26");
   doc.text(settings.nombreNegocio || "Mi negocio", nameX, headerY);
 
   /* Datos de la empresa en grilla de 2 columnas x 2 filas: aprovecha el
@@ -1126,16 +1173,16 @@ function generateMovementsPdf() {
   const row1HasContent = settings.direccion || settings.telefono;
   const row2HasContent = settings.email || settings.fiscal;
 
-  drawInfoField(col1X, infoY, PDF_ICONS.pin, settings.direccion);
+  drawInfoField(col1X, infoY, PDF_ICONS.location, settings.direccion);
   drawInfoField(col2X, infoY, PDF_ICONS.phone, settings.telefono);
   if (row1HasContent) infoY += 12;
   drawInfoField(col1X, infoY, PDF_ICONS.mail, settings.email);
-  drawInfoField(col2X, infoY, null, settings.fiscal ? `CUIT/ID: ${settings.fiscal}` : "");
+  drawInfoField(col2X, infoY, PDF_ICONS.nit, settings.fiscal ? `CUIT/ID: ${settings.fiscal}` : "");
   if (row2HasContent) infoY += 12;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.setTextColor("#0F172A");
+  doc.setTextColor("#0B2B26");
   doc.text("Reporte de movimientos", pageWidth - marginX, headerY, { align: "right" });
 
   doc.setFont("helvetica", "normal");
@@ -1149,30 +1196,13 @@ function generateMovementsPdf() {
   doc.setLineWidth(0.75);
   doc.line(marginX, tableStartY - 10, pageWidth - marginX, tableStartY - 10);
 
-  const columnDefs = [
-    { id: "colFecha", header: "Fecha", key: "fecha" },
-    { id: "colTipo", header: "Tipo", key: "tipo" },
-    { id: "colProducto", header: "Producto", key: "producto" },
-    { id: "colCategoria", header: "Categoría", key: "categoria" },
-    { id: "colCantidad", header: "Cantidad", key: "cantidad" },
-    { id: "colNota", header: "Nota", key: "nota" }
-  ];
+  const columnDefs = REPORT_COLUMN_DEFS;
   const activeColumns = columnDefs.filter((c) => document.getElementById(c.id).checked);
   const columns = activeColumns.length ? activeColumns : columnDefs; // por si desmarcan todas
 
   const rows = filtered.map((m) => {
     const p = getProduct(m.productId);
-    return columns.map((c) => {
-      switch (c.key) {
-        case "fecha": return formatDate(m.fecha);
-        case "tipo": return m.tipo === "entrada" ? "Entrada" : "Salida";
-        case "producto": return p ? p.nombre : "Producto eliminado";
-        case "categoria": return p ? p.categoria : "—";
-        case "cantidad": return `${m.tipo === "entrada" ? "+" : "-"}${m.cantidad}`;
-        case "nota": return m.nota || "—";
-        default: return "";
-      }
-    });
+    return columns.map((c) => getReportColumnValue(c.key, m, p));
   });
 
   doc.autoTable({
@@ -1180,8 +1210,8 @@ function generateMovementsPdf() {
     head: [columns.map((c) => c.header)],
     body: rows,
     styles: { font: "helvetica", fontSize: 7.3, textColor: "#334155", cellPadding: 4 },
-    headStyles: { fillColor: "#1D4E89", textColor: "#ffffff", fontStyle: "bold", fontSize: 7.6 },
-    alternateRowStyles: { fillColor: "#F8FAFC" },
+    headStyles: { fillColor: "#0E6B4F", textColor: "#ffffff", fontStyle: "bold", fontSize: 7.6 },
+    alternateRowStyles: { fillColor: "#F8FBF9" },
     margin: { left: marginX, right: marginX }
   });
 
@@ -1191,7 +1221,7 @@ function generateMovementsPdf() {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
-  doc.setTextColor("#0F172A");
+  doc.setTextColor("#0B2B26");
   doc.text(`Total entradas: +${totalIn}     Total salidas: -${totalOut}     Movimientos: ${filtered.length}`, marginX, finalY);
 
   finalY += 16;
@@ -1209,6 +1239,150 @@ function generateMovementsPdf() {
 
   doc.save(`boxly-reporte-movimientos-${new Date().toISOString().slice(0, 10)}.pdf`);
   showToast("Reporte PDF generado.", "success");
+}
+
+/* ---------------------------- Exportación a Excel (auditoría) ----------------------------
+   Genera una planilla real: cada dato en su propia celda/columna (no todo apilado en una
+   sola celda), con encabezados en verde, cuerpo con tinte alterno y el logo del negocio. */
+async function generateMovementsExcel() {
+  const filtered = getFilteredReportMovements();
+  if (!filtered.length) {
+    showToast("No hay movimientos para exportar con estos filtros.", "error");
+    return;
+  }
+  if (!window.ExcelJS) {
+    showToast("No se pudo cargar el generador de Excel. Verificá tu conexión a internet.", "error");
+    return;
+  }
+
+  const settings = STORE.settings;
+  const columnDefs = REPORT_COLUMN_DEFS;
+  const activeColumns = columnDefs.filter((c) => document.getElementById(c.id).checked);
+  const columns = activeColumns.length ? activeColumns : columnDefs;
+  const colCount = columns.length;
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Boxly";
+  workbook.created = new Date();
+  const sheet = workbook.addWorksheet("Movimientos", {
+    pageSetup: { orientation: "landscape", fitToPage: true }
+  });
+
+  const GREEN = "FF0E6B4F";
+  const GREEN_LIGHT = "FFE9F8EE";
+  const INK = "FF0B2B26";
+  const MUTED = "FF64748B";
+  const BORDER = "FFDCEAE1";
+
+  // ---- Encabezado con nombre del negocio, datos de contacto y logo ----
+  sheet.mergeCells(1, 1, 1, Math.max(colCount - 2, 1));
+  const titleCell = sheet.getCell(1, 1);
+  titleCell.value = settings.nombreNegocio || "Mi negocio";
+  titleCell.font = { bold: true, size: 14, color: { argb: INK } };
+  sheet.getRow(1).height = 24;
+
+  const infoParts = [settings.direccion, settings.telefono, settings.email, settings.fiscal ? `CUIT/ID: ${settings.fiscal}` : null].filter(Boolean);
+  sheet.mergeCells(2, 1, 2, Math.max(colCount - 2, 1));
+  sheet.getCell(2, 1).value = infoParts.join("   ·   ") || " ";
+  sheet.getCell(2, 1).font = { size: 9, color: { argb: MUTED } };
+
+  sheet.mergeCells(3, 1, 3, Math.max(colCount - 2, 1));
+  const reportTitleCell = sheet.getCell(3, 1);
+  reportTitleCell.value = `Reporte de movimientos — ${buildReportRangeLabel()}`;
+  reportTitleCell.font = { bold: true, size: 11, color: { argb: GREEN } };
+
+  sheet.mergeCells(4, 1, 4, Math.max(colCount - 2, 1));
+  sheet.getCell(4, 1).value = `Generado: ${new Date().toLocaleString("es-AR")}`;
+  sheet.getCell(4, 1).font = { italic: true, size: 8.5, color: { argb: MUTED } };
+
+  if (settings.logoBase64) {
+    try {
+      const match = /^data:image\/(png|jpe?g|webp);base64,/i.exec(settings.logoBase64);
+      let ext = match ? match[1].toLowerCase() : "png";
+      if (ext === "jpg") ext = "jpeg";
+      if (ext === "webp") ext = "png"; // ExcelJS no soporta webp; se omite si no matchea png/jpeg
+      const base64Data = settings.logoBase64.split(",")[1];
+      if (base64Data && (ext === "png" || ext === "jpeg")) {
+        const imageId = workbook.addImage({ base64: base64Data, extension: ext });
+        sheet.addImage(imageId, { tl: { col: Math.max(colCount - 2, 1), row: 0 }, ext: { width: 64, height: 64 } });
+        sheet.getRow(1).height = 26;
+        sheet.getRow(2).height = 16;
+        sheet.getRow(3).height = 16;
+        sheet.getRow(4).height = 16;
+      }
+    } catch (err) {
+      console.warn("No se pudo insertar el logo en el Excel.", err);
+    }
+  }
+
+  // ---- Encabezado de columnas (verde, texto blanco) ----
+  const headerRowIndex = 6;
+  const headerRow = sheet.getRow(headerRowIndex);
+  columns.forEach((c, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = c.header;
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10.5 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
+    cell.alignment = { vertical: "middle", horizontal: c.key === "cantidad" ? "right" : "left" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FF15803D" } } };
+  });
+  headerRow.height = 22;
+
+  // ---- Filas de datos: cada columna en su propia celda, con tinte alterno ----
+  filtered.forEach((m, rowIdx) => {
+    const p = getProduct(m.productId);
+    const row = sheet.getRow(headerRowIndex + 1 + rowIdx);
+    columns.forEach((c, i) => {
+      const cell = row.getCell(i + 1);
+      if (c.key === "cantidad") {
+        cell.value = (m.tipo === "entrada" ? 1 : -1) * m.cantidad;
+        cell.numFmt = '+0;-0;0';
+      } else {
+        cell.value = getReportColumnValue(c.key, m, p);
+      }
+      cell.font = { size: 9.5, color: { argb: "FF334155" } };
+      cell.alignment = { vertical: "middle", horizontal: c.key === "cantidad" ? "right" : "left", wrapText: c.key === "nota" || c.key === "producto" };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowIdx % 2 === 0 ? "FFFFFFFF" : GREEN_LIGHT } };
+      cell.border = { bottom: { style: "hair", color: { argb: BORDER } } };
+    });
+  });
+
+  // ---- Fila de totales ----
+  const totalIn = filtered.filter((m) => m.tipo === "entrada").reduce((s, m) => s + m.cantidad, 0);
+  const totalOut = filtered.filter((m) => m.tipo === "salida").reduce((s, m) => s + m.cantidad, 0);
+  const totalsRowIndex = headerRowIndex + 1 + filtered.length + 1;
+  sheet.mergeCells(totalsRowIndex, 1, totalsRowIndex, colCount);
+  const totalsCell = sheet.getCell(totalsRowIndex, 1);
+  totalsCell.value = `Total entradas: +${totalIn}     Total salidas: -${totalOut}     Movimientos: ${filtered.length}`;
+  totalsCell.font = { bold: true, size: 10, color: { argb: INK } };
+  totalsCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN_LIGHT } };
+  sheet.getRow(totalsRowIndex).height = 20;
+
+  const footerRowIndex = totalsRowIndex + 2;
+  sheet.mergeCells(footerRowIndex, 1, footerRowIndex, colCount);
+  sheet.getCell(footerRowIndex, 1).value = "Generado con Boxly — Panel de control de inventario.";
+  sheet.getCell(footerRowIndex, 1).font = { italic: true, size: 8, color: { argb: "FF94A3B8" } };
+
+  columns.forEach((c, i) => {
+    sheet.getColumn(i + 1).width = c.width;
+  });
+  sheet.views = [{ state: "frozen", ySplit: headerRowIndex }];
+  sheet.autoFilter = {
+    from: { row: headerRowIndex, column: 1 },
+    to: { row: headerRowIndex, column: colCount }
+  };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `boxly-reporte-movimientos-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast("Reporte Excel generado.", "success");
 }
 
 /* ---------------------------- Firma digital: dibujo en el PDF ---------------------------- */
@@ -1232,7 +1406,7 @@ function drawSignatureSection(doc, startY, marginX, pageWidth) {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
-  doc.setTextColor("#0F172A");
+  doc.setTextColor("#0B2B26");
   doc.text("Firma digital — auditoría", marginX, y);
   y += 14;
 
@@ -1271,7 +1445,7 @@ function drawSignatureSection(doc, startY, marginX, pageWidth) {
     doc.line(sig.x, y + sigImgHeight + 6, sig.x + colWidth, y + sigImgHeight + 6);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
-    doc.setTextColor("#0F172A");
+    doc.setTextColor("#0B2B26");
     doc.text(nombre || "________________________", sig.x, y + sigImgHeight + 18);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.8);
@@ -1299,7 +1473,7 @@ function initSignaturePad(canvas) {
   const ctx = canvas.getContext("2d");
   ctx.lineWidth = 2;
   ctx.lineCap = "round";
-  ctx.strokeStyle = "#0F172A";
+  ctx.strokeStyle = "#0B2B26";
   let drawing = false;
 
   function getPos(evt) {
@@ -1362,6 +1536,7 @@ document.getElementById("cfgFirmaDisclaimer").addEventListener("change", (e) => 
 });
 
 document.getElementById("repGenerarPdf").addEventListener("click", generateMovementsPdf);
+document.getElementById("repGenerarExcel").addEventListener("click", generateMovementsExcel);
 
 /* =========================================================================
    ALERTAS
@@ -1601,41 +1776,132 @@ const TOUR_STEPS = [
   {
     icon: "layout-dashboard",
     title: "¡Bienvenido a Boxly!",
-    desc: "Este es tu Dashboard: de un vistazo vas a ver el stock total, el valor de tu inventario y las alertas activas."
+    desc: "Este es tu Dashboard: de un vistazo vas a ver el stock total, el valor de tu inventario y las alertas activas.",
+    section: "dashboard",
+    target: ".stat-card:first-child"
+  },
+  {
+    icon: "pie-chart",
+    title: "Inventario por categoría",
+    desc: "Mirá cómo se reparte tu stock entre categorías para detectar rápido dónde tenés más volumen.",
+    section: "dashboard",
+    target: "#dashCategoryPanel"
   },
   {
     icon: "box",
     title: "Productos",
-    desc: "Cargá tu catálogo completo con SKU, código de barras, categoría, stock y precio. Todo queda listo para escanear."
+    desc: "Cargá tu catálogo completo con SKU, código de barras, categoría, stock y precio. Todo queda listo para escanear.",
+    section: "productos",
+    target: "#openAddProduct"
   },
   {
     icon: "scan-line",
     title: "Entradas y salidas",
-    desc: "Registrá movimientos de stock escaneando con una pistola lectora o la cámara de tu celular. Rápido y sin errores."
+    desc: "Registrá movimientos de stock escaneando con una pistola lectora o la cámara de tu celular. Rápido y sin errores.",
+    section: "entradas",
+    target: "#entradaScan"
   },
   {
     icon: "warehouse",
     title: "Inventario en tiempo real",
-    desc: "Consultá el estado de cada producto — OK, bajo o crítico — y filtrá por lo que necesites revisar."
+    desc: "Consultá el estado de cada producto — OK, bajo o crítico — y filtrá por lo que necesites revisar.",
+    section: "inventario",
+    target: "#inventarioStatusFilter"
   },
   {
-    icon: "bar-chart-2",
-    title: "Reportes y auditorías",
-    desc: "Generá PDFs profesionales con los datos de tu empresa y, si lo necesitás, sumá firmas digitales para auditorías."
+    icon: "file-down",
+    title: "Reportes en PDF",
+    desc: "Filtrá por fecha, tipo y categoría, elegí las columnas y descargá un PDF prolijo con tu logo y tus datos.",
+    section: "reportes",
+    target: "#repGenerarPdf"
+  },
+  {
+    icon: "file-spreadsheet",
+    title: "Reportes en Excel",
+    desc: "El mismo reporte, pero como planilla lista para trabajar: columnas separadas, encabezados en verde y tu logo.",
+    section: "reportes",
+    target: "#repGenerarExcel"
+  },
+  {
+    icon: "pen-tool",
+    title: "Firma digital para auditorías",
+    desc: "Activá este interruptor para sumar firmas y un descargo de responsabilidad automático al PDF que descargues.",
+    section: "reportes",
+    target: "#panelFirmas .toggle-row"
   },
   {
     icon: "settings",
     title: "Configuración a tu medida",
-    desc: "Personalizá moneda, stock mínimo, logo y datos de contacto de tu negocio en un solo lugar."
+    desc: "Personalizá moneda, stock mínimo, logo y datos de contacto de tu negocio en un solo lugar.",
+    section: "configuracion",
+    target: "#cfgLogoBtn"
   },
   {
     icon: "life-buoy",
     title: "Estamos para ayudarte",
-    desc: "Si te trabás con algo, en Ayuda y soporte encontrás preguntas frecuentes y nuestros canales de contacto."
+    desc: "Si te trabás con algo, en Ayuda y soporte encontrás preguntas frecuentes y nuestros canales de contacto.",
+    section: "ayuda",
+    target: "#replayTourBtn"
   }
 ];
 
 let tourIndex = 0;
+
+/* Ubica el "agujero" del spotlight y la tarjeta pegados al campo real del paso,
+   eligiendo arriba o abajo según dónde haya más espacio libre. */
+function positionTourAround(targetEl) {
+  const spotlight = document.getElementById("tourSpotlight");
+  const box = document.getElementById("tourBox");
+
+  if (!targetEl) {
+    spotlight.classList.remove("is-visible");
+    box.style.transform = "translate(-50%, -50%)";
+    box.style.top = "50%";
+    box.style.left = "50%";
+    return;
+  }
+
+  const rect = targetEl.getBoundingClientRect();
+  const pad = 8;
+  spotlight.style.width = `${rect.width + pad * 2}px`;
+  spotlight.style.height = `${rect.height + pad * 2}px`;
+  spotlight.style.top = `${rect.top - pad}px`;
+  spotlight.style.left = `${rect.left - pad}px`;
+  spotlight.classList.add("is-visible");
+
+  const boxRect = box.getBoundingClientRect();
+  const margin = 14;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const spaceBelow = vh - rect.bottom;
+  const spaceAbove = rect.top;
+
+  let top;
+  if (spaceBelow >= boxRect.height + margin || spaceBelow >= spaceAbove) {
+    top = rect.bottom + margin;
+  } else {
+    top = rect.top - boxRect.height - margin;
+  }
+  top = Math.min(Math.max(top, 12), vh - boxRect.height - 12);
+
+  let left = rect.left + rect.width / 2 - boxRect.width / 2;
+  left = Math.min(Math.max(left, 12), vw - boxRect.width - 12);
+
+  box.style.transform = "none";
+  box.style.top = `${top}px`;
+  box.style.left = `${left}px`;
+}
+
+function currentTourTarget() {
+  const step = TOUR_STEPS[tourIndex];
+  return step && step.target ? document.querySelector(step.target) : null;
+}
+
+function handleTourReposition() {
+  if (!document.getElementById("tourBackdrop").classList.contains("is-open")) return;
+  positionTourAround(currentTourTarget());
+}
 
 function renderTourStep() {
   const step = TOUR_STEPS[tourIndex];
@@ -1654,18 +1920,32 @@ function renderTourStep() {
     : `Siguiente <i data-lucide="arrow-right" class="h-4 w-4"></i>`;
 
   refreshIcons();
+
+  // Lleva a la sección real del paso para poder enfocar el campo correspondiente.
+  if (step.section) switchSection(step.section, { keepScroll: true });
+
+  const targetEl = step.target ? document.querySelector(step.target) : null;
+  if (targetEl) {
+    targetEl.scrollIntoView({ block: "center", behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }
+  setTimeout(() => positionTourAround(targetEl), prefersReducedMotion ? 20 : 320);
 }
 
 function openTour() {
   tourIndex = 0;
-  renderTourStep();
   document.getElementById("tourBackdrop").classList.add("is-open");
+  renderTourStep();
+  window.addEventListener("resize", handleTourReposition);
+  window.addEventListener("scroll", handleTourReposition, true);
 }
 
 function closeTour() {
   document.getElementById("tourBackdrop").classList.remove("is-open");
+  document.getElementById("tourSpotlight").classList.remove("is-visible");
   localStorage.setItem(TOUR_DONE_FLAG, "true");
   localStorage.removeItem(NEW_USER_FLAG);
+  window.removeEventListener("resize", handleTourReposition);
+  window.removeEventListener("scroll", handleTourReposition, true);
 }
 
 document.getElementById("tourNext").addEventListener("click", () => {
