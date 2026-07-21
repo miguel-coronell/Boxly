@@ -37,6 +37,7 @@ const TRIAL_KEY = "boxly_trial_v1";
 const TRIAL_DAYS = 7;
 const PLAN_PRICES = {
   mensual: { label: "Mensual", days: 30 },
+  semestral: { label: "Semestral", days: 182 },
   anual: { label: "Anual", days: 365 }
 };
 
@@ -69,11 +70,14 @@ function getTrialStatus(uid) {
   const expired = !isPaid && daysUsed >= TRIAL_DAYS;
   return { daysUsed, daysLeft, isPaid, expired, plan: data.plan };
 }
-function markPlanPaid(uid, planKey) {
+function markPlanPaid(uid, planKey, tier) {
   const store = getTrialStore();
   const plan = PLAN_PRICES[planKey];
   const paidUntil = new Date(Date.now() + plan.days * 86400000).toISOString();
-  store[uid] = { ...(store[uid] || {}), plan: planKey, paidUntil };
+  // "tier" es el plan de límites (basico/pro/premium) del Requerimiento 1-2.
+  // Si no se pasa (ej: paywall viejo de duración), se mantiene el tier que ya tenía o "pro" por defecto.
+  const resolvedTier = tier || (store[uid] && store[uid].tier) || "pro";
+  store[uid] = { ...(store[uid] || {}), plan: planKey, paidUntil, tier: resolvedTier };
   saveTrialStore(store);
 }
 
@@ -128,6 +132,267 @@ function initTrialGuard() {
   const status = getTrialStatus(CURRENT_USER.uid);
   renderTrialBanner();
   if (status.expired) openPaywall(true);
+}
+
+/* =========================================================================
+   REQUERIMIENTO 1 y 2 — "Mi Plan": tiers, límites de uso y bloqueo por plan
+   =========================================================================
+   Estos límites hoy viven en localStorage (junto con TRIAL_KEY) para que la demo
+   funcione sin backend. En producción, "tier", "maxSucursales/Productos/Documentos"
+   y "proximoPago" deben guardarse en el documento Firestore usuarios/{uid} del
+   Administrador, y actualizarse SOLO desde el webhook de PayPal (api/paypal-webhook.js),
+   nunca desde el navegador. Acá los dejamos igual de forma para que sea un
+   reemplazo directo: cambiá getPlanLimits()/getTrialStatus() por una lectura de
+   Firestore (onSnapshot sobre usuarios/{uid}) y el resto del código no cambia. */
+const PLAN_TIERS = {
+  basico: {
+    label: "Plan Básico",
+    priceLabel: "$12 <span>USD/mes</span>",
+    maxSucursales: 1,
+    maxProductos: 100,
+    maxDocumentos: 200
+  },
+  pro: {
+    label: "Plan Pro",
+    priceLabel: "$18 <span>USD/mes</span>",
+    maxSucursales: 5,
+    maxProductos: 1000,
+    maxDocumentos: 2000
+  },
+  premium: {
+    label: "Plan Premium",
+    priceLabel: "$25 <span>USD/mes</span>",
+    maxSucursales: Infinity,
+    maxProductos: Infinity,
+    maxDocumentos: Infinity
+  }
+};
+
+/* -------- PayPal (botones de suscripción reales) --------
+   Completá estos dos valores para activar los botones reales de PayPal en "Mi Plan".
+   - PAYPAL_CLIENT_ID: Client ID de tu app de PayPal (modo Live o Sandbox).
+   - PAYPAL_PLAN_IDS: los "Plan ID" (empiezan con "P-...") que creaste en el
+     dashboard de PayPal (Productos y servicios > Suscripciones) para cada tier.
+   Mientras estén vacíos, la sección "Mi Plan" muestra el botón de demo en su lugar. */
+const PAYPAL_CLIENT_ID = "BAA31DAp59ie21ISL1LdlIdz7m0T9H0OA5gg8Lc0OVIvvesRmT2_Z2e_qpfGIHEIjM6pQDmKOvOns5Lpp0"; // Client ID PayPal Live
+const PAYPAL_PLAN_IDS = {
+  basico: "P-2U160925B7282271CNJPSM3A",
+  pro: "P-40H79840DY636180TNJPSLYY",
+  premium: "P-93064402D0889823NNJPSKWQ"
+};
+
+function getTrialTier(uid) {
+  const store = getTrialStore();
+  return (store[uid] && store[uid].tier) || "basico";
+}
+
+/* Límites del plan del usuario logueado. Si todavía está en período de prueba,
+   usamos los límites del plan "pro" para que pueda probar sucursales múltiples. */
+function getPlanLimits() {
+  if (!CURRENT_USER) return PLAN_TIERS.basico;
+  const status = getTrialStatus(CURRENT_USER.uid);
+  if (!status.isPaid && !status.expired) return PLAN_TIERS.pro; // cortesía durante la prueba
+  const tier = getTrialTier(CURRENT_USER.uid);
+  return PLAN_TIERS[tier] || PLAN_TIERS.basico;
+}
+
+function getPlanUsage() {
+  return {
+    sucursales: STORE.sucursales.length,
+    productos: STORE.products.length,
+    documentos: STORE.movements.length
+  };
+}
+
+/* Función centralizada (Requerimiento 2). Se llama ANTES de abrir los modales
+   de "Crear producto" / "Crear sucursal". type: "producto" | "sucursal" */
+function checkPlanLimits(type) {
+  const limits = getPlanLimits();
+  const usage = getPlanUsage();
+  const map = {
+    producto: { used: usage.productos, max: limits.maxProductos, label: "productos" },
+    sucursal: { used: usage.sucursales, max: limits.maxSucursales, label: "sucursales" },
+    documento: { used: usage.documentos, max: limits.maxDocumentos, label: "documentos" }
+  };
+  const c = map[type];
+  return { allowed: c.used < c.max, used: c.used, max: c.max, label: c.label };
+}
+
+/* Banner de aviso que se inserta arriba del formulario cuando el límite ya se superó,
+   más el modal de upgrade que se abre en simultáneo invitando a mejorar el plan. */
+function limitBannerHtml(check) {
+  const maxLabel = check.max === Infinity ? "∞" : check.max;
+  return `<div class="limit-banner">
+    <i data-lucide="lock" class="h-4 w-4"></i>
+    <div>
+      Llegaste al límite de tu plan (${check.used}/${maxLabel} ${check.label}). Para seguir creando, mejorá tu plan.
+      <div class="limit-banner-actions">
+        <button type="button" class="btn-primary" id="limitBannerUpgradeBtn">
+          <i data-lucide="arrow-up-circle" class="h-3.5 w-3.5"></i> Ver planes
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* Modal aparte que invita a mejorar el plan, con el mismo mecanismo de PayPal
+   que ya usa el paywall. Se abre junto con el modal de creación bloqueado. */
+function openUpgradeModal(check) {
+  const maxLabel = check.max === Infinity ? "∞" : check.max;
+  openModal(
+    "Actualizá tu plan",
+    `<div class="movement-form">
+      <p class="text-sm text-slate-600">Superaste el límite de <strong>${check.label}</strong> de tu plan actual (${check.used}/${maxLabel}). Elegí un plan superior para seguir creciendo con Boxly.</p>
+      <div class="paywall-plans mt-4" style="grid-template-columns:1fr 1fr;">
+        <button type="button" class="btn-paypal" data-upgrade-tier="pro">
+          <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
+          Pasar a Plan Pro
+        </button>
+        <button type="button" class="btn-paypal" data-upgrade-tier="premium">
+          <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
+          Pasar a Plan Premium
+        </button>
+      </div>
+    </div>`,
+    (body) => {
+      body.querySelectorAll("[data-upgrade-tier]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          closeModal();
+          switchSection("mi-plan");
+        });
+      });
+    }
+  );
+}
+
+/* Carga el SDK de PayPal en modo "subscription" una sola vez, solo si hay client-id. */
+let paypalSdkLoadPromise = null;
+function loadPayPalSdk() {
+  if (!PAYPAL_CLIENT_ID) return Promise.resolve(false);
+  if (window.paypal) return Promise.resolve(true);
+  if (paypalSdkLoadPromise) return paypalSdkLoadPromise;
+  paypalSdkLoadPromise = new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(PAYPAL_CLIENT_ID)}&vault=true&intent=subscription`;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+  return paypalSdkLoadPromise;
+}
+
+/* Renderiza los botones reales de suscripción de PayPal (uno por tier) dentro de
+   los <div id="paypalBtn..."> de la sección Mi Plan. Cuando el comprador aprueba
+   la suscripción, PayPal llama a onApprove en el navegador (solo para UX: mostrar
+   un mensaje) y, en paralelo, dispara el webhook BILLING.SUBSCRIPTION.ACTIVATED
+   contra api/paypal-webhook.js, que es quien realmente actualiza el plan en Firestore. */
+async function initPayPalSubscriptionButtons() {
+  const ok = await loadPayPalSdk();
+  document.querySelectorAll(".plan-demo-btn").forEach((btn) => {
+    btn.classList.toggle("hidden", ok);
+  });
+  if (!ok || !window.paypal) return;
+
+  const slots = { basico: "paypalBtnBasico", pro: "paypalBtnPro", premium: "paypalBtnPremium" };
+  Object.entries(slots).forEach(([tier, slotId]) => {
+    const planId = PAYPAL_PLAN_IDS[tier];
+    const slot = document.getElementById(slotId);
+    if (!planId || !slot) return;
+    slot.innerHTML = "";
+    window.paypal
+      .Buttons({
+        style: { shape: "pill", color: "gold", layout: "vertical", label: "subscribe" },
+        createSubscription: function (data, actions) {
+          return actions.subscription.create({
+            plan_id: planId,
+            // custom_id: viaja hasta el webhook para que sepamos a qué usuario/admin
+            // de Firestore hay que actualizarle el plan (ver api/paypal-webhook.js).
+            custom_id: CURRENT_USER.uid
+          });
+        },
+        onApprove: function (data) {
+          showToast("¡Gracias! Estamos confirmando tu suscripción con PayPal...", "success");
+          // El estado real (plan/límites/próximo pago) lo actualiza el webhook del
+          // servidor. Acá solo refrescamos la UI por si ya llegó la actualización.
+          setTimeout(() => renderMiPlan(), 3000);
+        },
+        onError: function (err) {
+          console.error("Error de PayPal:", err);
+          showToast("Hubo un problema con PayPal. Intentá de nuevo.", "error");
+        }
+      })
+      .render(`#${slotId}`);
+  });
+}
+
+/* Botones de demo (mientras no hay PAYPAL_CLIENT_ID configurado): simulan la
+   activación del plan igual que ya hace handlePayPalClick() para el paywall. */
+document.querySelectorAll("[data-plan-demo]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const tier = btn.getAttribute("data-plan-demo");
+    showToast("Modo demo: procesando suscripción con PayPal...", "success");
+    setTimeout(() => {
+      markPlanPaid(CURRENT_USER.uid, "mensual", tier);
+      showToast(`¡Listo! Tu ${PLAN_TIERS[tier].label} ya está activo.`, "success");
+      renderMiPlan();
+    }, 1200);
+  });
+});
+
+/* Pinta la sección "Mi Plan": plan actual, próximo pago y las 3 barras de progreso
+   de uso (sucursales / productos / documentos). */
+function renderMiPlan() {
+  if (!CURRENT_USER) return;
+  const status = getTrialStatus(CURRENT_USER.uid);
+  const tier = status.isPaid ? getTrialTier(CURRENT_USER.uid) : "basico";
+  const limits = getPlanLimits();
+  const usage = getPlanUsage();
+
+  document.getElementById("miPlanBadge").innerHTML = `<i data-lucide="gem" class="h-3.5 w-3.5"></i> ${status.isPaid ? "Plan activo" : status.expired ? "Sin plan activo" : "Prueba gratis"}`;
+  document.getElementById("miPlanNombre").textContent = status.isPaid ? PLAN_TIERS[tier].label : "Prueba gratis (equivalente a Pro)";
+  document.getElementById("miPlanPrecio").innerHTML = status.isPaid ? PLAN_TIERS[tier].priceLabel : "$0 <span>por ahora</span>";
+
+  const trialStore = getTrialStore();
+  const paidUntil = trialStore[CURRENT_USER.uid] && trialStore[CURRENT_USER.uid].paidUntil;
+  document.getElementById("miPlanMeta").textContent = status.isPaid && paidUntil
+    ? `Próximo pago: ${formatDate(paidUntil)}`
+    : status.expired
+    ? "Tu prueba gratis terminó. Elegí un plan para seguir usando Boxly."
+    : `Prueba gratis: te quedan ${status.daysLeft} día${status.daysLeft === 1 ? "" : "s"}.`;
+
+  const bars = [
+    { key: "sucursales", used: usage.sucursales, max: limits.maxSucursales, barId: "miPlanBarSucursales", labelId: "miPlanUsoSucursales" },
+    { key: "productos", used: usage.productos, max: limits.maxProductos, barId: "miPlanBarProductos", labelId: "miPlanUsoProductos" },
+    { key: "documentos", used: usage.documentos, max: limits.maxDocumentos, barId: "miPlanBarDocumentos", labelId: "miPlanUsoDocumentos" }
+  ];
+  bars.forEach((b) => {
+    const pct = b.max === Infinity ? Math.min((b.used / 50) * 100, 15) : Math.min((b.used / b.max) * 100, 100);
+    const bar = document.getElementById(b.barId);
+    bar.style.width = `${pct}%`;
+    bar.classList.remove("bar-fill-plan-warn", "bar-fill-plan-danger");
+    if (b.max !== Infinity) {
+      if (b.used >= b.max) bar.classList.add("bar-fill-plan-danger");
+      else if (b.used / b.max >= 0.8) bar.classList.add("bar-fill-plan-warn");
+    }
+    document.getElementById(b.labelId).textContent = `${b.used} / ${b.max === Infinity ? "∞" : b.max}`;
+  });
+
+  document.querySelectorAll(".plan-pricing-grid .paywall-plan").forEach((card) => {
+    const isCurrent = status.isPaid && card.getAttribute("data-tier") === tier;
+    card.classList.toggle("is-current-plan", isCurrent);
+    let tag = card.querySelector(".plan-current-tag");
+    if (isCurrent && !tag) {
+      tag = document.createElement("span");
+      tag.className = "plan-current-tag";
+      tag.textContent = "Tu plan actual";
+      card.prepend(tag);
+    } else if (!isCurrent && tag) {
+      tag.remove();
+    }
+  });
+
+  refreshIcons();
+  initPayPalSubscriptionButtons();
 }
 
 /* Mapea el valor en español del <select> de estado (inventario) al estado interno
@@ -205,11 +470,9 @@ function seedData() {
     { id: "m8", tipo: "entrada", productId: "p11", cantidad: 25, nota: "Compra a proveedor", fecha: daysAgo(0) }
   ];
 
-  const users = [
-    { id: "u1", nombre: "Admin", email: "admin@boxlyapp.com", rol: "Administrador" },
-    { id: "u2", nombre: "Lucía Pérez", email: "lucia@boxlyapp.com", rol: "Editor" },
-    { id: "u3", nombre: "Diego Ramos", email: "diego@boxlyapp.com", rol: "Visualizador" }
-  ];
+  const users = [];
+
+  const sucursales = [{ id: "s1", nombre: "Casa Central", direccion: "" }];
 
   const settings = {
     nombreNegocio: "Mi negocio",
@@ -223,11 +486,80 @@ function seedData() {
     fiscal: ""
   };
 
-  return { products, movements, users, settings };
+  movements.forEach((m) => { m.sucursalId = "s1"; });
+
+  const encargados = [];
+
+  return { products, movements, users, sucursales, settings, encargados };
 }
 
 /* ---------------------------- Persistencia ---------------------------- */
 let STORE = loadStore();
+
+/* ---------------------------- Dueño de la cuenta (admin real) ----------------------------
+   Garantiza que quien está logueado (CURRENT_USER, con su email real de registro) sea
+   siempre el Administrador de esta cuenta, y no un usuario de ejemplo. Se identifica por
+   "uid" (el mismo id que devuelve el login). Si ya existía un usuario cargado con el mismo
+   email (por ejemplo, alguien migrando de una versión vieja), lo adopta como dueño en vez
+   de crear un duplicado. */
+function ensureOwnerUser() {
+  if (!CURRENT_USER) return;
+  let owner = STORE.users.find((u) => u.uid && u.uid === CURRENT_USER.uid);
+  if (!owner && CURRENT_USER.email) {
+    owner = STORE.users.find((u) => u.email && u.email.toLowerCase() === CURRENT_USER.email.toLowerCase());
+  }
+  if (owner) {
+    owner.uid = CURRENT_USER.uid;
+    owner.isOwner = true;
+    owner.rol = "Administrador";
+    owner.sucursalId = null;
+    owner.nombre = CURRENT_USER.nombre || owner.nombre;
+    owner.email = CURRENT_USER.email || owner.email;
+  } else {
+    STORE.users.unshift({
+      id: uid("u"),
+      uid: CURRENT_USER.uid,
+      nombre: CURRENT_USER.nombre || CURRENT_USER.email || "Administrador",
+      email: CURRENT_USER.email || "",
+      rol: "Administrador",
+      sucursalId: null,
+      isOwner: true
+    });
+  }
+  saveStore();
+}
+ensureOwnerUser();
+
+function currentUserRecord() {
+  return CURRENT_USER ? STORE.users.find((u) => u.uid === CURRENT_USER.uid) : null;
+}
+function isCurrentUserAdmin() {
+  const u = currentUserRecord();
+  return !!u && u.rol === "Administrador";
+}
+/* Devuelve el id de sucursal al que está limitado el usuario logueado, o null si
+   puede ver todas (Administrador). */
+function currentUserSucursalId() {
+  const u = currentUserRecord();
+  return u && u.rol !== "Administrador" ? u.sucursalId : null;
+}
+function getSucursal(id) {
+  return STORE.sucursales.find((s) => s.id === id);
+}
+function sucursalName(id) {
+  const s = getSucursal(id);
+  return s ? s.nombre : "Sin asignar";
+}
+/* Movimientos que puede ver el usuario logueado: todos si es Administrador,
+   o solo los de su sucursal asignada si tiene otro rol. */
+function visibleMovements() {
+  const sucursalId = currentUserSucursalId();
+  return sucursalId ? STORE.movements.filter((m) => m.sucursalId === sucursalId) : STORE.movements;
+}
+function applyRoleVisibility() {
+  const admin = isCurrentUserAdmin();
+  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", !admin));
+}
 
 function loadStore() {
   try {
@@ -245,8 +577,10 @@ function loadStore() {
 }
 
 /* Asegura que datos guardados con versiones anteriores tengan los campos nuevos
-   (codigoBarras en productos, datos de empresa/logo en settings) sin perder
-   la información ya cargada por el usuario. */
+   (codigoBarras en productos, datos de empresa/logo en settings, sucursales) sin
+   perder la información ya cargada por el usuario. */
+const LEGACY_DEMO_EMAILS = ["admin@boxlyapp.com", "lucia@boxlyapp.com", "diego@boxlyapp.com"];
+
 function migrateStore(store) {
   store.products = (store.products || []).map((p) => ({ codigoBarras: "", ...p }));
   store.settings = {
@@ -261,8 +595,20 @@ function migrateStore(store) {
     fiscal: "",
     ...(store.settings || {})
   };
-  store.movements = store.movements || [];
-  store.users = store.users || [];
+
+  store.sucursales = store.sucursales && store.sucursales.length
+    ? store.sucursales
+    : [{ id: "s1", nombre: "Casa Central", direccion: "" }];
+  const defaultSucursalId = store.sucursales[0].id;
+
+  store.movements = (store.movements || []).map((m) => ({ sucursalId: defaultSucursalId, ...m }));
+
+  // Limpia los usuarios de ejemplo de versiones viejas de la demo (no son cuentas reales).
+  store.users = (store.users || []).filter((u) => !LEGACY_DEMO_EMAILS.includes(u.email));
+  store.users = store.users.map((u) => ({ sucursalId: defaultSucursalId, uid: null, isOwner: false, ...u }));
+
+  store.encargados = store.encargados || [];
+
   return store;
 }
 
@@ -283,6 +629,28 @@ function uid(prefix) {
 function formatMoney(n) {
   const symbol = { ARS: "$", USD: "US$", MXN: "MX$", COP: "COL$" }[STORE.settings.moneda] || "$";
   return `${symbol}${Math.round(n).toLocaleString("es-AR")}`;
+}
+
+/* ---------------------------- Requerimiento 3: Dashboard a moneda ----------------------------
+   Formatea cualquier monto como moneda local usando Intl.NumberFormat, respetando la
+   moneda elegida en Configuración (STORE.settings.moneda: ARS/USD/MXN/COP). Esta es la
+   función que hay que usar en cualquier lugar del dashboard que muestre $, en vez de
+   concatenar el símbolo "a mano" como hacía formatMoney(). Ejemplo de salida: "$ 15.420,00". */
+const CURRENCY_LOCALE_MAP = { ARS: "es-AR", USD: "en-US", MXN: "es-MX", COP: "es-CO" };
+function formatCurrency(amount) {
+  const currency = (STORE.settings && STORE.settings.moneda) || "ARS";
+  const locale = CURRENCY_LOCALE_MAP[currency] || "es-AR";
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(Number(amount) || 0);
+  } catch (err) {
+    // Fallback por si el navegador no reconoce el código de moneda.
+    return `$ ${(Number(amount) || 0).toFixed(2)}`;
+  }
 }
 
 function formatDate(iso) {
@@ -433,11 +801,16 @@ const SECTION_META = {
   reportes: { title: "Reportes", subtitle: "Métricas clave de tu inventario." },
   alertas: { title: "Alertas", subtitle: "Productos que necesitan tu atención." },
   usuarios: { title: "Usuarios", subtitle: "Administrá quién accede a tu cuenta." },
+  sucursales: { title: "Sucursales", subtitle: "Administrá las sucursales de tu negocio." },
+  "mi-plan": { title: "Mi Plan", subtitle: "Tu suscripción, límites de uso y facturación." },
   configuracion: { title: "Configuración", subtitle: "Ajustá los datos de tu negocio." },
   ayuda: { title: "Ayuda y soporte", subtitle: "Estamos para ayudarte con Boxly." }
 };
 
 function switchSection(target, opts = {}) {
+  if ((target === "usuarios" || target === "sucursales" || target === "mi-plan") && !isCurrentUserAdmin()) {
+    target = "dashboard";
+  }
   sections.forEach((s) => s.classList.toggle("active", s.id === `section-${target}`));
   sidebarLinks.forEach((l) => l.classList.toggle("active", l.getAttribute("data-target") === target));
   const meta = SECTION_META[target];
@@ -462,6 +835,8 @@ function renderSection(target) {
     case "reportes": renderReportes(); break;
     case "alertas": renderAlertas(); break;
     case "usuarios": renderUsuarios(); break;
+    case "sucursales": renderSucursales(); break;
+    case "mi-plan": renderMiPlan(); break;
     case "configuracion": renderConfiguracion(); break;
     case "ayuda": break; // sección estática, no requiere render dinámico
   }
@@ -531,27 +906,30 @@ document.getElementById("globalSearch").addEventListener("input", (e) => {
 /* =========================================================================
    DASHBOARD
    ========================================================================= */
-function computeStats() {
-  const totalProducts = STORE.products.length;
-  const totalStock = STORE.products.reduce((sum, p) => sum + p.stock, 0);
-  const totalValue = STORE.products.reduce((sum, p) => sum + p.stock * p.precio, 0);
-  const activeAlerts = STORE.products.filter((p) => productStatus(p) !== "ok").length;
+function computeStats(categoria) {
+  const products = categoria ? STORE.products.filter((p) => p.categoria === categoria) : STORE.products;
+  const totalProducts = products.length;
+  const totalStock = products.reduce((sum, p) => sum + p.stock, 0);
+  const totalValue = products.reduce((sum, p) => sum + p.stock * p.precio, 0);
+  const activeAlerts = products.filter((p) => productStatus(p) !== "ok").length;
   return { totalProducts, totalStock, totalValue, activeAlerts };
 }
 
-function categoryBreakdown() {
+function categoryBreakdown(categoria) {
   const map = {};
-  STORE.products.forEach((p) => {
-    map[p.categoria] = (map[p.categoria] || 0) + p.stock;
-  });
+  STORE.products
+    .filter((p) => !categoria || p.categoria === categoria)
+    .forEach((p) => {
+      map[p.categoria] = (map[p.categoria] || 0) + p.stock;
+    });
   const total = Object.values(map).reduce((a, b) => a + b, 0) || 1;
   return Object.entries(map)
     .map(([categoria, stock]) => ({ categoria, stock, pct: Math.round((stock / total) * 100) }))
     .sort((a, b) => b.stock - a.stock);
 }
 
-function renderDonut(svgEl, legendEl) {
-  const data = categoryBreakdown();
+function renderDonut(svgEl, legendEl, categoria) {
+  const data = categoryBreakdown(categoria);
   svgEl.innerHTML = `<circle cx="21" cy="21" r="15.9" fill="none" stroke="#E9F8EE" stroke-width="6"></circle>`;
   let offset = 0;
   data.forEach((item, i) => {
@@ -580,17 +958,79 @@ function renderDonut(svgEl, legendEl) {
     : `<li class="text-slate-400">Sin productos cargados</li>`;
 }
 
+/* ---------------------------- Barra de filtros del Dashboard ----------------------------
+   Los mismos 3 filtros (fecha, sucursal, categoría) controlan las tarjetas de KPIs, el
+   gráfico de categorías, los movimientos recientes y la tabla de stock bajo. Todo se
+   recalcula en el momento a partir de STORE (localStorage). Ver más abajo el bloque
+   FIRESTORE_DASHBOARD_SYNC con el equivalente para cuando conectes el backend. */
+function getDashboardFilters() {
+  const rango = document.getElementById("dashFiltroFecha").value;
+  const sucursalId = document.getElementById("dashFiltroSucursal").value;
+  const categoria = document.getElementById("dashFiltroCategoria").value;
+  const range = rango === "todo" ? null : quickFilterRange(rango);
+  return { start: range ? range.start : null, end: range ? range.end : null, sucursalId, categoria };
+}
+
+function populateDashboardFilters() {
+  const sucursalSelect = document.getElementById("dashFiltroSucursal");
+  const fixedId = currentUserSucursalId();
+  if (!fixedId) {
+    const current = sucursalSelect.value;
+    sucursalSelect.innerHTML = `<option value="">Todas</option>` + STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+    sucursalSelect.disabled = false;
+    if (STORE.sucursales.some((s) => s.id === current)) sucursalSelect.value = current;
+  } else {
+    const s = getSucursal(fixedId);
+    sucursalSelect.innerHTML = s ? `<option value="${s.id}">${s.nombre}</option>` : `<option value="">Sin sucursal asignada</option>`;
+    sucursalSelect.disabled = true;
+  }
+  populateCategorySelect(document.getElementById("dashFiltroCategoria"));
+}
+
+function getFilteredDashboardMovements() {
+  const { start, end, sucursalId, categoria } = getDashboardFilters();
+  return visibleMovements().filter((m) => {
+    const fecha = new Date(m.fecha);
+    const matchesStart = !start || fecha >= start;
+    const matchesEnd = !end || fecha <= end;
+    const matchesSucursal = !sucursalId || m.sucursalId === sucursalId;
+    const product = getProduct(m.productId);
+    const matchesCategoria = !categoria || (product && product.categoria === categoria);
+    return matchesStart && matchesEnd && matchesSucursal && matchesCategoria;
+  });
+}
+
 function renderDashboard() {
-  const stats = computeStats();
+  populateDashboardFilters();
+  const { categoria } = getDashboardFilters();
+  const stats = computeStats(categoria);
   animateValue(document.getElementById("statTotalProducts"), stats.totalProducts);
   animateValue(document.getElementById("statTotalStock"), stats.totalStock);
-  animateValue(document.getElementById("statTotalValue"), Math.round(stats.totalValue));
+  document.getElementById("statTotalValue").textContent = formatCurrency(stats.totalValue);
   animateValue(document.getElementById("statActiveAlerts"), stats.activeAlerts);
 
-  renderDonut(document.getElementById("donutChart"), document.getElementById("donutLegend"));
+  renderDonut(document.getElementById("donutChart"), document.getElementById("donutLegend"), categoria);
 
-  // Recent movements (last 5)
-  const recent = [...STORE.movements].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
+  const filteredMovements = getFilteredDashboardMovements();
+  const purchases = filteredMovements.filter((m) => m.tipo === "entrada").reduce((sum, m) => sum + m.cantidad, 0);
+  const sales = filteredMovements.filter((m) => m.tipo === "salida").reduce((sum, m) => sum + m.cantidad, 0);
+  animateValue(document.getElementById("statPurchases"), purchases);
+  animateValue(document.getElementById("statSales"), sales);
+
+  // Ventas / Compras totales EN MONEDA (Requerimiento 3): suman montoTotal de cada
+  // movimiento (cantidad * precio unitario del producto al momento del movimiento,
+  // ver registerMovement) y se formatean con Intl.NumberFormat vía formatCurrency().
+  const purchasesAmount = filteredMovements
+    .filter((m) => m.tipo === "entrada")
+    .reduce((sum, m) => sum + (m.montoTotal || 0), 0);
+  const salesAmount = filteredMovements
+    .filter((m) => m.tipo === "salida")
+    .reduce((sum, m) => sum + (m.montoTotal || 0), 0);
+  document.getElementById("statPurchasesAmount").textContent = formatCurrency(purchasesAmount);
+  document.getElementById("statSalesAmount").textContent = formatCurrency(salesAmount);
+
+  // Recent movements (últimos 5, respetando los filtros y la sucursal del usuario logueado)
+  const recent = [...filteredMovements].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
   const list = document.getElementById("recentMovements");
   list.innerHTML = recent.length
     ? recent
@@ -608,10 +1048,13 @@ function renderDashboard() {
           </li>`;
         })
         .join("")
-    : `<li class="text-sm text-slate-400 px-1">Todavía no hay movimientos registrados.</li>`;
+    : `<li class="text-sm text-slate-400 px-1">No hay movimientos para estos filtros.</li>`;
 
-  // Low stock table
-  const lowStock = STORE.products.filter((p) => productStatus(p) !== "ok").sort((a, b) => a.stock - b.stock);
+  // Low stock table (respeta el filtro de categoría)
+  const lowStock = STORE.products
+    .filter((p) => !categoria || p.categoria === categoria)
+    .filter((p) => productStatus(p) !== "ok")
+    .sort((a, b) => a.stock - b.stock);
   const tbody = document.getElementById("lowStockTableBody");
   tbody.innerHTML = lowStock.length
     ? lowStock
@@ -637,6 +1080,111 @@ function updateAlertBadges() {
   document.getElementById("notifBadge").textContent = count;
   document.getElementById("sidebarAlertBadge").style.display = count ? "inline-flex" : "none";
   document.getElementById("notifBadge").style.display = count ? "inline-flex" : "none";
+}
+
+["dashFiltroFecha", "dashFiltroSucursal", "dashFiltroCategoria"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", () => renderDashboard());
+});
+document.getElementById("dashFiltroLimpiar").addEventListener("click", () => {
+  document.getElementById("dashFiltroFecha").value = "todo";
+  document.getElementById("dashFiltroSucursal").value = "";
+  document.getElementById("dashFiltroCategoria").value = "";
+  renderDashboard();
+  showToast("Filtros del dashboard limpiados.", "success");
+});
+
+/* =========================================================================
+   REFERENCIA: sincronización de estos mismos filtros con Firestore
+   ========================================================================= */
+/*
+  Esta función NO se ejecuta todavía (no está llamada en ningún lado). Es la
+  plantilla lista para cuando conectes Firestore: mismo criterio de filtros
+  (fecha, sucursal, categoría) que ya usa getDashboardFilters(), pero en vez
+  de filtrar el array STORE.movements en el navegador, arma una query de
+  Firestore con .where() encadenados y la escucha en vivo con onSnapshot,
+  para que las tarjetas y el gráfico se recalculen solos apenas cambia algo
+  en la base (sin necesidad de F5).
+
+  Para activarla:
+  1) Agregá el SDK de Firestore en app.html (mismo compat que ya usa login.html)
+     y tu firebase-config.js con las credenciales del proyecto.
+  2) Reemplazá "productId" / "sucursalId" / "fecha" por los nombres reales de
+     tus campos en la colección "movimientos" si los llamaste distinto.
+  3) Llamá a initDashboardFirestoreSync() en el DOMContentLoaded, en lugar de
+     (o además de) renderDashboard(), según cómo migres los datos.
+*/
+function initDashboardFirestoreSync() {
+  const db = firebase.firestore();
+  const negocioId = CURRENT_USER.uid; // o el id de la cuenta/negocio si manejás varios dueños
+
+  function buildMovementsQuery() {
+    const { start, end, sucursalId, categoria } = getDashboardFilters();
+
+    // Punto de partida: todos los movimientos del negocio logueado.
+    let query = db.collection("negocios").doc(negocioId).collection("movimientos");
+
+    // --- Filtro de sucursal: solo se agrega el .where() si hay una sucursal elegida ---
+    // (si el usuario logueado no es Administrador, sucursalId ya viene fijo en su propia sucursal)
+    if (sucursalId) {
+      query = query.where("sucursalId", "==", sucursalId);
+    }
+
+    // --- Filtro de categoría: Firestore no permite ir a "products.categoria" desde
+    // "movimientos", así que lo ideal es desnormalizar y guardar "categoria" también
+    // en cada documento de movimiento al crearlo (ver registerMovement). Así el filtro
+    // queda simple: ---
+    if (categoria) {
+      query = query.where("categoria", "==", categoria);
+    }
+
+    // --- Filtro de fecha: Firestore sí permite rangos con .where() combinados,
+    // pero solo sobre UN campo con desigualdades (">=" y "<=" sobre "fecha" está bien
+    // porque son el mismo campo) ---
+    if (start) query = query.where("fecha", ">=", start);
+    if (end) query = query.where("fecha", "<=", end);
+
+    return query.orderBy("fecha", "desc");
+  }
+
+  // Guardamos la referencia al listener activo para poder cancelarlo cuando
+  // cambian los filtros y hay que volver a suscribirse con la query nueva.
+  let unsubscribe = null;
+
+  function subscribe() {
+    if (unsubscribe) unsubscribe(); // corta el listener anterior antes de crear el nuevo
+
+    unsubscribe = buildMovementsQuery().onSnapshot(
+      (snapshot) => {
+        const movimientos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+        // A partir de acá, todo es el mismo cálculo que ya hace renderDashboard(),
+        // pero con los datos que llegaron en vivo de Firestore en vez de STORE.movements:
+        const purchases = movimientos.filter((m) => m.tipo === "entrada").reduce((sum, m) => sum + m.cantidad, 0);
+        const sales = movimientos.filter((m) => m.tipo === "salida").reduce((sum, m) => sum + m.cantidad, 0);
+        animateValue(document.getElementById("statPurchases"), purchases);
+        animateValue(document.getElementById("statSales"), sales);
+
+        const recent = movimientos.slice(0, 5);
+        // ...acá reutilizás el mismo bloque que arma el <li> de "Movimientos recientes"...
+
+        // Los KPIs que dependen de productos (stock total, valor de inventario, alertas)
+        // seguirían viniendo de la colección "productos" con su propio listener,
+        // filtrado también por categoría si corresponde.
+      },
+      (error) => {
+        console.error("Error escuchando movimientos:", error);
+        showToast("No se pudieron cargar los movimientos en vivo.", "error");
+      }
+    );
+  }
+
+  // Cada vez que el admin cambia un filtro, se vuelve a armar la query y se
+  // re-suscribe (en vez de re-filtrar en el navegador como hace la versión demo).
+  ["dashFiltroFecha", "dashFiltroSucursal", "dashFiltroCategoria"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", subscribe);
+  });
+
+  subscribe();
 }
 
 /* =========================================================================
@@ -717,9 +1265,15 @@ function openProductModal(existing, options = {}) {
   const prefillSku = options.prefillSku || "";
   const prefillBarcode = options.prefillBarcode || prefillSku || "";
 
+  // Requerimiento 2: checkPlanLimits() corre antes de construir el modal de "Crear producto".
+  // Solo aplica al alta (no a la edición de un producto ya existente).
+  const limitCheck = !isEdit ? checkPlanLimits("producto") : null;
+  const limitExceeded = Boolean(limitCheck && !limitCheck.allowed);
+
   openModal(
     isEdit ? "Editar producto" : "Nuevo producto",
-    `<form id="productForm" class="movement-form">
+    `${limitExceeded ? limitBannerHtml(limitCheck) : ""}
+    <form id="productForm" class="movement-form">
       <label class="form-label">SKU</label>
       <input id="pfSku" type="text" class="form-input" value="${isEdit ? existing.sku : prefillSku}" placeholder="Ej: STK-013" required>
 
@@ -747,14 +1301,20 @@ function openProductModal(existing, options = {}) {
       <label class="form-label">Precio unitario</label>
       <input id="pfPrecio" type="number" min="0" step="0.01" class="form-input" value="${isEdit ? existing.precio : 0}" required>
 
-      <button type="submit" class="btn-primary w-full justify-center mt-4">
+      <button type="submit" class="btn-primary w-full justify-center mt-4" ${limitExceeded ? "disabled" : ""}>
         <i data-lucide="${isEdit ? "save" : "plus"}" class="h-4 w-4"></i>
         ${isEdit ? "Guardar cambios" : "Crear producto"}
       </button>
     </form>`,
     (body) => {
+      if (limitExceeded) {
+        body.querySelectorAll("#productForm input, #productForm select").forEach((el) => (el.disabled = true));
+        const upgradeBtn = body.querySelector("#limitBannerUpgradeBtn");
+        if (upgradeBtn) upgradeBtn.addEventListener("click", () => openUpgradeModal(limitCheck));
+      }
       body.querySelector("#productForm").addEventListener("submit", (e) => {
         e.preventDefault();
+        if (limitExceeded) return; // doble resguardo además del atributo disabled
         const payload = {
           sku: body.querySelector("#pfSku").value.trim(),
           codigoBarras: body.querySelector("#pfCodigoBarras").value.trim(),
@@ -805,14 +1365,32 @@ function populateProductSelect(selectEl, categoria) {
   if (list.some((p) => p.id === current)) selectEl.value = current;
 }
 
+/* Puebla el selector de sucursal de un formulario de movimiento. Si el usuario
+   logueado es Administrador, puede elegir cualquier sucursal; si tiene otro rol,
+   el campo queda fijo en la sucursal que le asignó el administrador. */
+function populateSucursalSelect(selectEl) {
+  const fixedId = currentUserSucursalId();
+  if (!fixedId) {
+    const current = selectEl.value;
+    selectEl.disabled = false;
+    selectEl.innerHTML = STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+    if (STORE.sucursales.some((s) => s.id === current)) selectEl.value = current;
+  } else {
+    const s = getSucursal(fixedId);
+    selectEl.disabled = true;
+    selectEl.innerHTML = s ? `<option value="${s.id}">${s.nombre}</option>` : `<option value="">Sin sucursal asignada</option>`;
+  }
+}
+
 function renderMovementHistory(tipo, tbodyId, emptyId) {
-  const items = STORE.movements.filter((m) => m.tipo === tipo).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  const items = visibleMovements().filter((m) => m.tipo === tipo).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const tbody = document.getElementById(tbodyId);
   tbody.innerHTML = items
     .map((m) => {
       const product = getProduct(m.productId);
       return `<tr>
         <td class="font-mono text-xs text-slate-400">${formatDate(m.fecha)}</td>
+        <td class="text-slate-400">${sucursalName(m.sucursalId)}</td>
         <td class="font-medium text-ink">${product ? product.nombre : "Producto eliminado"}</td>
         <td class="font-mono ${tipo === "entrada" ? "text-greendark" : "text-red-500"}">${tipo === "entrada" ? "+" : "−"}${m.cantidad}</td>
         <td class="text-slate-400">${m.nota || "—"}</td>
@@ -823,6 +1401,7 @@ function renderMovementHistory(tipo, tbodyId, emptyId) {
 }
 
 function renderEntradas() {
+  populateSucursalSelect(document.getElementById("entradaSucursal"));
   const categoriaFiltro = document.getElementById("entradaCategoriaFiltro");
   populateCategorySelect(categoriaFiltro);
   populateProductSelect(document.getElementById("entradaProducto"), categoriaFiltro.value);
@@ -830,6 +1409,7 @@ function renderEntradas() {
 }
 
 function renderSalidas() {
+  populateSucursalSelect(document.getElementById("salidaSucursal"));
   const categoriaFiltro = document.getElementById("salidaCategoriaFiltro");
   populateCategorySelect(categoriaFiltro);
   populateProductSelect(document.getElementById("salidaProducto"), categoriaFiltro.value);
@@ -843,12 +1423,17 @@ document.getElementById("salidaCategoriaFiltro").addEventListener("change", (e) 
   populateProductSelect(document.getElementById("salidaProducto"), e.target.value);
 });
 
-function registerMovement(tipo, productSelectId, cantidadId, notaId, formId) {
+function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, sucursalSelectId) {
+  const sucursalId = document.getElementById(sucursalSelectId).value;
   const productId = document.getElementById(productSelectId).value;
   const cantidad = parseInt(document.getElementById(cantidadId).value, 10);
   const nota = document.getElementById(notaId).value.trim();
   const product = getProduct(productId);
 
+  if (!sucursalId) {
+    showToast("Seleccioná una sucursal.", "error");
+    return;
+  }
   if (!product || !cantidad || cantidad <= 0) {
     showToast("Completá el producto y una cantidad válida.", "error");
     return;
@@ -860,7 +1445,11 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId) {
   }
 
   product.stock += tipo === "entrada" ? cantidad : -cantidad;
-  STORE.movements.push({ id: uid("m"), tipo, productId, cantidad, nota, fecha: new Date().toISOString() });
+  // montoTotal = cantidad * precio unitario del producto en el momento del movimiento.
+  // Es la base que usa el dashboard (Requerimiento 3) para sumar "Compras totales" y
+  // "Ventas totales" en moneda, en vez de solo unidades.
+  const montoTotal = cantidad * (product.precio || 0);
+  STORE.movements.push({ id: uid("m"), tipo, productId, cantidad, nota, sucursalId, montoTotal, fecha: new Date().toISOString() });
   saveStore();
 
   document.getElementById(formId).reset();
@@ -872,11 +1461,11 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId) {
 
 document.getElementById("entradaForm").addEventListener("submit", (e) => {
   e.preventDefault();
-  registerMovement("entrada", "entradaProducto", "entradaCantidad", "entradaNota", "entradaForm");
+  registerMovement("entrada", "entradaProducto", "entradaCantidad", "entradaNota", "entradaForm", "entradaSucursal");
 });
 document.getElementById("salidaForm").addEventListener("submit", (e) => {
   e.preventDefault();
-  registerMovement("salida", "salidaProducto", "salidaCantidad", "salidaNota", "salidaForm");
+  registerMovement("salida", "salidaProducto", "salidaCantidad", "salidaNota", "salidaForm", "salidaSucursal");
 });
 
 /* ---------------------------- Buscador / escáner de código ---------------------------- */
@@ -1042,6 +1631,12 @@ function quickFilterRange(key) {
   end.setHours(23, 59, 59, 999);
 
   if (key === "hoy") return { start, end };
+  if (key === "7dias") {
+    const start7 = new Date(now);
+    start7.setDate(start7.getDate() - 6);
+    start7.setHours(0, 0, 0, 0);
+    return { start: start7, end };
+  }
   if (key === "semana") {
     const day = (start.getDay() + 6) % 7; // lunes = 0
     start.setDate(start.getDate() - day);
@@ -1064,6 +1659,7 @@ function getReportFilters() {
   const tipo = document.getElementById("repTipo").value;
   const categoria = document.getElementById("repCategoria").value;
   const orden = document.getElementById("repOrden").value;
+  const sucursalId = document.getElementById("repSucursal").value;
 
   let start = desdeInput ? new Date(`${desdeInput}T00:00:00`) : null;
   let end = hastaInput ? new Date(`${hastaInput}T23:59:59`) : null;
@@ -1076,20 +1672,38 @@ function getReportFilters() {
     }
   }
 
-  return { start, end, tipo, categoria, orden };
+  return { start, end, tipo, categoria, orden, sucursalId };
+}
+
+/* Puebla el filtro de sucursal de Reportes. El Administrador puede elegir
+   cualquier sucursal (o "Todas"); otros roles quedan fijos en la suya. */
+function populateReportSucursalFilter() {
+  const select = document.getElementById("repSucursal");
+  const fixedId = currentUserSucursalId();
+  if (!fixedId) {
+    const current = select.value;
+    select.innerHTML = `<option value="">Todas las sucursales</option>` + STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+    select.disabled = false;
+    if (STORE.sucursales.some((s) => s.id === current)) select.value = current;
+  } else {
+    const s = getSucursal(fixedId);
+    select.innerHTML = s ? `<option value="${s.id}">${s.nombre}</option>` : `<option value="">Sin sucursal asignada</option>`;
+    select.disabled = true;
+  }
 }
 
 function getFilteredReportMovements() {
-  const { start, end, tipo, categoria, orden } = getReportFilters();
+  const { start, end, tipo, categoria, orden, sucursalId } = getReportFilters();
 
-  let filtered = STORE.movements.filter((m) => {
+  let filtered = visibleMovements().filter((m) => {
     const fecha = new Date(m.fecha);
     const matchesStart = !start || fecha >= start;
     const matchesEnd = !end || fecha <= end;
     const matchesTipo = !tipo || m.tipo === tipo;
+    const matchesSucursal = !sucursalId || m.sucursalId === sucursalId;
     const product = getProduct(m.productId);
     const matchesCategoria = !categoria || (product && product.categoria === categoria);
-    return matchesStart && matchesEnd && matchesTipo && matchesCategoria;
+    return matchesStart && matchesEnd && matchesTipo && matchesSucursal && matchesCategoria;
   });
 
   filtered.sort((a, b) => (orden === "asc" ? new Date(a.fecha) - new Date(b.fecha) : new Date(b.fecha) - new Date(a.fecha)));
@@ -1106,6 +1720,7 @@ function renderReportMovementsTable() {
       const product = getProduct(m.productId);
       return `<tr>
         <td class="font-mono text-xs text-slate-400">${formatDate(m.fecha)}</td>
+        <td class="text-slate-400">${sucursalName(m.sucursalId)}</td>
         <td>${m.tipo === "entrada" ? `<span class="status-tag status-ok">Entrada</span>` : `<span class="status-tag status-critical">Salida</span>`}</td>
         <td class="font-medium text-ink">${product ? product.nombre : "Producto eliminado"}</td>
         <td class="text-slate-400">${product ? product.categoria : "—"}</td>
@@ -1160,10 +1775,11 @@ function renderReportes() {
   });
 
   populateReportCategoryFilter();
+  populateReportSucursalFilter();
   renderReportMovementsTable();
 }
 
-["repDesde", "repHasta", "repTipo", "repCategoria", "repOrden"].forEach((id) => {
+["repDesde", "repHasta", "repTipo", "repCategoria", "repOrden", "repSucursal"].forEach((id) => {
   document.getElementById(id).addEventListener("change", () => {
     if (id === "repDesde" || id === "repHasta") {
       reportQuickFilter = "todo";
@@ -1196,6 +1812,7 @@ function buildReportRangeLabel() {
 /* Columnas disponibles para el reporte de movimientos. "width" se usa solo en el Excel. */
 const REPORT_COLUMN_DEFS = [
   { id: "colFecha", header: "Fecha", key: "fecha", width: 14 },
+  { id: "colSucursal", header: "Sucursal", key: "sucursal", width: 16 },
   { id: "colTipo", header: "Tipo", key: "tipo", width: 12 },
   { id: "colProducto", header: "Producto", key: "producto", width: 30 },
   { id: "colCategoria", header: "Categoría", key: "categoria", width: 18 },
@@ -1206,6 +1823,7 @@ const REPORT_COLUMN_DEFS = [
 function getReportColumnValue(key, m, p) {
   switch (key) {
     case "fecha": return formatDate(m.fecha);
+    case "sucursal": return sucursalName(m.sucursalId);
     case "tipo": return m.tipo === "entrada" ? "Entrada" : "Salida";
     case "producto": return p ? p.nombre : "Producto eliminado";
     case "categoria": return p ? p.categoria : "—";
@@ -1693,19 +2311,23 @@ function roleBadgeColor(rol) {
 function renderUsuarios() {
   const tbody = document.getElementById("usersTableBody");
   tbody.innerHTML = STORE.users
-    .map(
-      (u) => `<tr>
+    .map((u) => {
+      const sucursalLabel = u.rol === "Administrador" ? "Todas" : sucursalName(u.sucursalId);
+      const actions = u.isOwner
+        ? `<span class="text-xs text-slate-400">Es tu cuenta</span>`
+        : `<button class="icon-btn" data-edit-user="${u.id}" aria-label="Editar"><i data-lucide="pencil" class="h-4 w-4"></i></button>
+           <button class="icon-btn danger" data-remove-user="${u.id}" aria-label="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>`;
+      return `<tr>
         <td class="font-medium text-ink">
           <span class="avatar-sm">${u.nombre.charAt(0)}</span>
-          ${u.nombre}
+          ${u.nombre}${u.isOwner ? ` <span class="status-tag status-ok">Vos</span>` : ""}
         </td>
         <td class="text-slate-400">${u.email}</td>
         <td><span class="status-tag ${roleBadgeColor(u.rol)}">${u.rol}</span></td>
-        <td class="text-right">
-          ${u.rol === "Administrador" ? "" : `<button class="icon-btn danger" data-remove-user="${u.id}" aria-label="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>`}
-        </td>
-      </tr>`
-    )
+        <td class="text-slate-400">${sucursalLabel}</td>
+        <td class="text-right">${actions}</td>
+      </tr>`;
+    })
     .join("");
 
   refreshIcons();
@@ -1726,44 +2348,353 @@ function renderUsuarios() {
       );
     });
   });
+
+  tbody.querySelectorAll("[data-edit-user]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const user = STORE.users.find((u) => u.id === btn.getAttribute("data-edit-user"));
+      openUserForm(user);
+    });
+  });
 }
 
-document.getElementById("openAddUser").addEventListener("click", () => {
+/* Formulario de invitar/editar usuario. Si "user" es null, crea uno nuevo. */
+function openUserForm(user) {
+  const isEdit = Boolean(user);
+  const sucursalOptions = STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+
   openModal(
-    "Invitar usuario",
+    isEdit ? "Editar usuario" : "Invitar usuario",
     `<form id="userForm" class="movement-form">
-      <label class="form-label">Nombre</label>
-      <input id="ufNombre" type="text" class="form-input" placeholder="Nombre y apellido" required>
+      <label class="form-label" style="margin-top:0">Nombre</label>
+      <input id="ufNombre" type="text" class="form-input" placeholder="Nombre y apellido" value="${isEdit ? user.nombre : ""}" required>
       <label class="form-label">Email</label>
-      <input id="ufEmail" type="email" class="form-input" placeholder="nombre@negocio.com" required>
+      <input id="ufEmail" type="email" class="form-input" placeholder="nombre@negocio.com" value="${isEdit ? user.email : ""}" required>
       <label class="form-label">Rol</label>
       <select id="ufRol" class="form-input">
         <option value="Editor">Editor</option>
         <option value="Visualizador">Visualizador</option>
         <option value="Administrador">Administrador</option>
       </select>
+      <label class="form-label">Sucursal</label>
+      <select id="ufSucursal" class="form-input">${sucursalOptions}</select>
+      <p class="text-xs text-slate-400 mt-1">Como Administrador, este usuario va a poder ver y gestionar todas las sucursales.</p>
+      ${isEdit ? "" : `<p class="text-xs text-slate-400 mt-1"><i data-lucide="info" class="h-3 w-3 inline"></i> Por ahora esto guarda el registro dentro de tu cuenta, pero la persona invitada todavía necesita crear su propia cuenta de Boxly con este mismo email para poder entrar. Cuando conectemos Firebase, esto va a enviar la invitación real.</p>`}
       <button type="submit" class="btn-primary w-full justify-center mt-4">
-        <i data-lucide="user-plus" class="h-4 w-4"></i>
-        Invitar
+        <i data-lucide="${isEdit ? "save" : "user-plus"}" class="h-4 w-4"></i>
+        ${isEdit ? "Guardar cambios" : "Invitar"}
       </button>
     </form>`,
     (body) => {
+      const rolSelect = body.querySelector("#ufRol");
+      const sucursalSelect = body.querySelector("#ufSucursal");
+      const syncSucursalField = () => {
+        const esAdmin = rolSelect.value === "Administrador";
+        sucursalSelect.disabled = esAdmin;
+        sucursalSelect.parentElement && null; // noop, mantiene estructura
+      };
+      rolSelect.value = isEdit ? user.rol : "Editor";
+      sucursalSelect.value = isEdit && user.sucursalId ? user.sucursalId : (STORE.sucursales[0] ? STORE.sucursales[0].id : "");
+      syncSucursalField();
+      rolSelect.addEventListener("change", syncSucursalField);
+
       body.querySelector("#userForm").addEventListener("submit", (e) => {
         e.preventDefault();
-        STORE.users.push({
-          id: uid("u"),
-          nombre: body.querySelector("#ufNombre").value.trim(),
-          email: body.querySelector("#ufEmail").value.trim(),
-          rol: body.querySelector("#ufRol").value
-        });
+        const nombre = body.querySelector("#ufNombre").value.trim();
+        const email = body.querySelector("#ufEmail").value.trim().toLowerCase();
+        const rol = rolSelect.value;
+        const sucursalId = rol === "Administrador" ? null : sucursalSelect.value;
+
+        const emailTaken = STORE.users.some((u) => u.email.toLowerCase() === email && (!isEdit || u.id !== user.id));
+        if (emailTaken) {
+          showToast("Ya hay un usuario con ese email.", "error");
+          return;
+        }
+
+        if (isEdit) {
+          user.nombre = nombre;
+          user.email = email;
+          user.rol = rol;
+          user.sucursalId = sucursalId;
+        } else {
+          STORE.users.push({ id: uid("u"), uid: null, nombre, email, rol, sucursalId, isOwner: false });
+        }
         saveStore();
         closeModal();
         renderUsuarios();
-        showToast("Usuario invitado.", "success");
+        showToast(isEdit ? "Usuario actualizado." : "Usuario invitado.", "success");
       });
     }
   );
-});
+}
+
+document.getElementById("openAddUser").addEventListener("click", () => openUserForm(null));
+
+/* =========================================================================
+   SUCURSALES
+   ========================================================================= */
+function renderSucursales() {
+  const tbody = document.getElementById("sucursalesTableBody");
+  tbody.innerHTML = STORE.sucursales
+    .map((s) => {
+      const cantidadUsuarios = STORE.users.filter((u) => u.rol !== "Administrador" && u.sucursalId === s.id).length;
+      const esUnica = STORE.sucursales.length <= 1;
+      return `<tr>
+        <td class="font-medium text-ink">${s.nombre}</td>
+        <td class="text-slate-400">${s.direccion || "—"}</td>
+        <td class="text-slate-400">${cantidadUsuarios}</td>
+        <td class="text-right">
+          <button class="icon-btn" data-edit-sucursal="${s.id}" aria-label="Editar"><i data-lucide="pencil" class="h-4 w-4"></i></button>
+          ${esUnica ? "" : `<button class="icon-btn danger" data-remove-sucursal="${s.id}" aria-label="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>`}
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  refreshIcons();
+
+  tbody.querySelectorAll("[data-edit-sucursal]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const s = STORE.sucursales.find((x) => x.id === btn.getAttribute("data-edit-sucursal"));
+      openSucursalForm(s);
+    });
+  });
+
+  tbody.querySelectorAll("[data-remove-sucursal]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const s = STORE.sucursales.find((x) => x.id === btn.getAttribute("data-remove-sucursal"));
+      const enUso = STORE.users.some((u) => u.sucursalId === s.id) || STORE.movements.some((m) => m.sucursalId === s.id);
+      openConfirmModal(
+        "Eliminar sucursal",
+        enUso
+          ? `<strong>${s.nombre}</strong> tiene usuarios o movimientos cargados. Si la eliminás, esos usuarios van a quedar sin sucursal asignada hasta que les asignes otra. ¿Continuar?`
+          : `¿Seguro que querés eliminar <strong>${s.nombre}</strong>?`,
+        "Eliminar",
+        () => {
+          STORE.sucursales = STORE.sucursales.filter((x) => x.id !== s.id);
+          STORE.users.forEach((u) => { if (u.sucursalId === s.id) u.sucursalId = null; });
+          saveStore();
+          renderSucursales();
+          renderUsuarios();
+          showToast("Sucursal eliminada.", "success");
+        }
+      );
+    });
+  });
+
+  renderEncargados();
+}
+
+function openSucursalForm(sucursal) {
+  const isEdit = Boolean(sucursal);
+  const limitCheck = !isEdit ? checkPlanLimits("sucursal") : null;
+  const limitExceeded = Boolean(limitCheck && !limitCheck.allowed);
+
+  openModal(
+    isEdit ? "Editar sucursal" : "Nueva sucursal",
+    `${limitExceeded ? limitBannerHtml(limitCheck) : ""}
+    <form id="sucursalForm" class="movement-form">
+      <label class="form-label" style="margin-top:0">Nombre</label>
+      <input id="sfNombre" type="text" class="form-input" placeholder="Ej: Sucursal Centro" value="${isEdit ? sucursal.nombre : ""}" required>
+      <label class="form-label">Dirección (opcional)</label>
+      <input id="sfDireccion" type="text" class="form-input" placeholder="Ej: Av. San Martín 1234" value="${isEdit ? sucursal.direccion || "" : ""}">
+      <button type="submit" class="btn-primary w-full justify-center mt-4" ${limitExceeded ? "disabled" : ""}>
+        <i data-lucide="${isEdit ? "save" : "plus"}" class="h-4 w-4"></i>
+        ${isEdit ? "Guardar cambios" : "Crear sucursal"}
+      </button>
+    </form>`,
+    (body) => {
+      if (limitExceeded) {
+        body.querySelectorAll("#sucursalForm input").forEach((el) => (el.disabled = true));
+        const upgradeBtn = body.querySelector("#limitBannerUpgradeBtn");
+        if (upgradeBtn) upgradeBtn.addEventListener("click", () => openUpgradeModal(limitCheck));
+      }
+      body.querySelector("#sucursalForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (limitExceeded) return;
+        const nombre = body.querySelector("#sfNombre").value.trim();
+        const direccion = body.querySelector("#sfDireccion").value.trim();
+        if (isEdit) {
+          sucursal.nombre = nombre;
+          sucursal.direccion = direccion;
+        } else {
+          STORE.sucursales.push({ id: uid("s"), nombre, direccion });
+        }
+        saveStore();
+        closeModal();
+        renderSucursales();
+        renderUsuarios();
+        showToast(isEdit ? "Sucursal actualizada." : "Sucursal creada.", "success");
+      });
+    }
+  );
+}
+
+document.getElementById("openAddSucursal").addEventListener("click", () => openSucursalForm(null));
+
+/* =========================================================================
+   REQUERIMIENTO 4 — Encargados de sucursal (Vercel Serverless + Firebase Auth)
+   =========================================================================
+   Por qué esto NO usa firebase.auth().createUserWithEmailAndPassword() directo
+   desde el navegador: esa llamada inicia sesión automáticamente con el usuario
+   recién creado, lo que cerraría la sesión del Administrador que está logueado.
+   La solución es delegar la creación a una Vercel Serverless Function que usa el
+   Firebase Admin SDK (admin.auth().createUser), que no toca la sesión del cliente.
+   Ver /api/create-encargado.js.
+
+   Acá en el frontend guardamos además una copia liviana en STORE.encargados
+   (localStorage) solo para que la demo sin backend siga funcionando visualmente.
+   Cuando conectes Firebase de verdad, reemplazá renderEncargados() por un
+   onSnapshot sobre la colección "usuarios" filtrando rol == "encargado". */
+
+function renderEncargados() {
+  const tbody = document.getElementById("encargadosTableBody");
+  const empty = document.getElementById("encargadosEmptyState");
+  if (!tbody) return;
+
+  tbody.innerHTML = STORE.encargados
+    .map((e) => {
+      const estadoClass = e.estado === "activo" ? "encargado-status-activo" : e.estado === "error" ? "encargado-status-error" : "encargado-status-pendiente";
+      const estadoLabel = e.estado === "activo" ? "Activo" : e.estado === "error" ? "Error al crear" : "Creando...";
+      return `<tr>
+        <td class="font-medium text-ink">
+          <span class="avatar-sm">${e.nombre.charAt(0)}</span>
+          ${e.nombre}
+        </td>
+        <td class="text-slate-400">${e.email}</td>
+        <td class="text-slate-400">${sucursalName(e.sucursalId)}</td>
+        <td class="${estadoClass} font-mono text-xs">${estadoLabel}</td>
+        <td class="text-right">
+          <button class="icon-btn danger" data-remove-encargado="${e.id}" aria-label="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  if (empty) empty.classList.toggle("hidden", STORE.encargados.length > 0);
+  refreshIcons();
+
+  tbody.querySelectorAll("[data-remove-encargado]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const enc = STORE.encargados.find((x) => x.id === btn.getAttribute("data-remove-encargado"));
+      openConfirmModal(
+        "Quitar encargado",
+        `¿Seguro que querés quitar el acceso de <strong>${enc.nombre}</strong>? Esto no borra su usuario de Firebase Auth automáticamente; para eso necesitás otra función serverless de "deshabilitar usuario" (mismo patrón que create-encargado.js, usando admin.auth().updateUser(uid, { disabled: true })).`,
+        "Quitar",
+        () => {
+          STORE.encargados = STORE.encargados.filter((x) => x.id !== enc.id);
+          saveStore();
+          renderEncargados();
+          showToast("Encargado quitado de la lista.", "success");
+        }
+      );
+    });
+  });
+}
+
+/* Devuelve el ID token del usuario de Firebase actualmente logueado, si existe.
+   Esta demo corre con un login simulado en localStorage (CURRENT_USER), así que
+   por ahora devuelve null y el backend rechazará la request en producción real.
+   Apenas conectes firebase-auth-compat.js de verdad, esto empieza a andar solo. */
+async function getIdTokenSafe() {
+  try {
+    if (window.firebase && firebase.auth && firebase.auth().currentUser) {
+      return await firebase.auth().currentUser.getIdToken();
+    }
+  } catch (err) {
+    console.error("No se pudo obtener el ID token de Firebase:", err);
+  }
+  return null;
+}
+
+async function createEncargado({ nombre, email, password, sucursalId }) {
+  const idToken = await getIdTokenSafe();
+  const localRecord = { id: uid("enc"), nombre, email, sucursalId, uid: null, estado: "pendiente" };
+  STORE.encargados.push(localRecord);
+  saveStore();
+  renderEncargados();
+
+  try {
+    const res = await fetch("/api/create-encargado", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // El backend valida este token con admin.auth().verifyIdToken() y confirma
+        // que quien llama es, efectivamente, el Administrador de la cuenta.
+        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
+      },
+      body: JSON.stringify({ nombre, email, password, sucursalId })
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      localRecord.estado = "error";
+      saveStore();
+      renderEncargados();
+      showToast(data.error || "No se pudo crear el encargado.", "error");
+      return;
+    }
+
+    localRecord.estado = "activo";
+    localRecord.uid = data.uid || null;
+    saveStore();
+    renderEncargados();
+    showToast(`Encargado ${nombre} creado correctamente.`, "success");
+  } catch (err) {
+    console.error("Error llamando a /api/create-encargado:", err);
+    localRecord.estado = "error";
+    saveStore();
+    renderEncargados();
+    showToast("No se pudo conectar con el servidor. ¿Ya desplegaste /api/create-encargado en Vercel?", "error");
+  }
+}
+
+function openEncargadoForm() {
+  if (!STORE.sucursales.length) {
+    showToast("Primero creá al menos una sucursal.", "error");
+    return;
+  }
+  const sucursalOptions = STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+
+  openModal(
+    "Nuevo encargado de sucursal",
+    `<form id="encargadoForm" class="movement-form">
+      <label class="form-label" style="margin-top:0">Nombre y apellido</label>
+      <input id="efNombre" type="text" class="form-input" placeholder="Ej: Marina Gómez" required>
+      <label class="form-label">Email</label>
+      <input id="efEmail" type="email" class="form-input" placeholder="marina@negocio.com" required>
+      <label class="form-label">Contraseña temporal</label>
+      <input id="efPassword" type="password" class="form-input" placeholder="Mínimo 6 caracteres" minlength="6" required>
+      <label class="form-label">Sucursal asignada</label>
+      <select id="efSucursal" class="form-input">${sucursalOptions}</select>
+      <p class="text-xs text-slate-400 mt-1"><i data-lucide="info" class="h-3 w-3 inline"></i> El encargado va a poder iniciar sesión con este email y contraseña, y solo va a ver/operar la sucursal asignada.</p>
+      <button type="submit" class="btn-primary w-full justify-center mt-4">
+        <i data-lucide="user-cog" class="h-4 w-4"></i>
+        Crear encargado
+      </button>
+    </form>`,
+    (body) => {
+      body.querySelector("#encargadoForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const nombre = body.querySelector("#efNombre").value.trim();
+        const email = body.querySelector("#efEmail").value.trim().toLowerCase();
+        const password = body.querySelector("#efPassword").value;
+        const sucursalId = body.querySelector("#efSucursal").value;
+
+        if (STORE.encargados.some((x) => x.email.toLowerCase() === email)) {
+          showToast("Ya hay un encargado con ese email.", "error");
+          return;
+        }
+
+        const submitBtn = body.querySelector("button[type=submit]");
+        submitBtn.disabled = true;
+        closeModal();
+        await createEncargado({ nombre, email, password, sucursalId });
+      });
+    }
+  );
+}
+
+document.getElementById("openAddEncargado").addEventListener("click", () => openEncargadoForm());
 
 /* =========================================================================
    CONFIGURACIÓN
@@ -2081,10 +3012,12 @@ function initOnboardingTour() {
    Init
    ========================================================================= */
 const paywallMensualBtn = document.getElementById("paywallMensualBtn");
+const paywallSemestralBtn = document.getElementById("paywallSemestralBtn");
 const paywallAnualBtn = document.getElementById("paywallAnualBtn");
 const paywallCloseBtn = document.getElementById("paywallCloseBtn");
 const trialUpgradeBtn = document.getElementById("trialUpgradeBtn");
 if (paywallMensualBtn) paywallMensualBtn.addEventListener("click", () => handlePayPalClick("mensual"));
+if (paywallSemestralBtn) paywallSemestralBtn.addEventListener("click", () => handlePayPalClick("semestral"));
 if (paywallAnualBtn) paywallAnualBtn.addEventListener("click", () => handlePayPalClick("anual"));
 if (paywallCloseBtn) paywallCloseBtn.addEventListener("click", closePaywall);
 if (trialUpgradeBtn) trialUpgradeBtn.addEventListener("click", () => openPaywall(false));
@@ -2093,6 +3026,7 @@ document.addEventListener("DOMContentLoaded", () => {
   lucide.createIcons();
   initReveal();
   renderAuthUser();
+  applyRoleVisibility();
   renderDashboard();
   initOnboardingTour();
   initTrialGuard();
