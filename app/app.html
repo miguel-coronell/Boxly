@@ -23,6 +23,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script> 
 <script src="firebase-config.js"></script>
 
+<!-- El SDK de PayPal (modo "subscription") se inyecta dinámicamente desde app.js
+     usando la constante PAYPAL_CLIENT_ID, solo si está configurada. Así evitamos
+     un <script> roto en producción mientras todavía no cargaste tu client-id real. -->
+
 <link rel="icon" href="../img/boxly-icon.png" type="image/png">
 <link rel="stylesheet" href="app.css">
 </head>
@@ -82,8 +86,14 @@
         <span class="sidebar-label">Alertas</span>
         <span id="sidebarAlertBadge" class="sidebar-badge">0</span>
       </button>
-      <button class="sidebar-link" data-target="usuarios">
+      <button id="sidebarUsuariosLink" class="sidebar-link admin-only" data-target="usuarios">
         <i data-lucide="users" class="h-4 w-4"></i><span class="sidebar-label">Usuarios</span>
+      </button>
+      <button id="sidebarSucursalesLink" class="sidebar-link admin-only" data-target="sucursales">
+        <i data-lucide="store" class="h-4 w-4"></i><span class="sidebar-label">Sucursales</span>
+      </button>
+      <button id="sidebarMiPlanLink" class="sidebar-link admin-only" data-target="mi-plan">
+        <i data-lucide="gem" class="h-4 w-4"></i><span class="sidebar-label">Mi Plan</span>
       </button>
       <button class="sidebar-link" data-target="configuracion">
         <i data-lucide="settings" class="h-4 w-4"></i><span class="sidebar-label">Configuración</span>
@@ -146,6 +156,34 @@
 
       <!-- ============ DASHBOARD ============ -->
       <section id="section-dashboard" class="app-section active">
+        <div class="dash-filterbar" data-reveal>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label" for="dashFiltroFecha">Rango de fechas</label>
+            <select id="dashFiltroFecha" class="filter-select">
+              <option value="hoy">Hoy</option>
+              <option value="7dias">Últimos 7 días</option>
+              <option value="mes">Este mes</option>
+              <option value="todo" selected>Todos los tiempos</option>
+            </select>
+          </div>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label" for="dashFiltroSucursal">Sucursal</label>
+            <select id="dashFiltroSucursal" class="filter-select">
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <div class="dash-filter-group">
+            <label class="dash-filter-label" for="dashFiltroCategoria">Categoría</label>
+            <select id="dashFiltroCategoria" class="filter-select">
+              <option value="">Todas las categorías</option>
+            </select>
+          </div>
+          <button id="dashFiltroLimpiar" class="dash-filter-clear" type="button">
+            <i data-lucide="x" class="h-3.5 w-3.5"></i>
+            Limpiar filtros
+          </button>
+        </div>
+
         <div class="stat-grid" data-reveal>
           <div class="stat-card">
             <div class="stat-card-top">
@@ -166,7 +204,7 @@
               <span class="stat-icon stat-icon-purple"><i data-lucide="wallet" class="h-4 w-4"></i></span>
             </div>
             <p class="stat-label">Valor de inventario</p>
-            <p class="stat-value">$<span id="statTotalValue" data-count-to="0">0</span></p>
+            <p class="stat-value stat-value-money" id="statTotalValue">$ 0,00</p>
           </div>
           <div class="stat-card">
             <div class="stat-card-top">
@@ -174,6 +212,34 @@
             </div>
             <p class="stat-label">Alertas activas</p>
             <p class="stat-value text-red-500" id="statActiveAlerts" data-count-to="0">0</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon stat-icon-green"><i data-lucide="arrow-down-to-line" class="h-4 w-4"></i></span>
+            </div>
+            <p class="stat-label">Compras (entradas)</p>
+            <p class="stat-value"><span id="statPurchases" data-count-to="0">0</span> u.</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon stat-icon-red"><i data-lucide="arrow-up-from-line" class="h-4 w-4"></i></span>
+            </div>
+            <p class="stat-label">Ventas (salidas)</p>
+            <p class="stat-value"><span id="statSales" data-count-to="0">0</span> u.</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon stat-icon-green"><i data-lucide="banknote" class="h-4 w-4"></i></span>
+            </div>
+            <p class="stat-label">Compras totales</p>
+            <p class="stat-value stat-value-money" id="statPurchasesAmount">$ 0,00</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon stat-icon-purple"><i data-lucide="circle-dollar-sign" class="h-4 w-4"></i></span>
+            </div>
+            <p class="stat-label">Ventas totales</p>
+            <p class="stat-value stat-value-money" id="statSalesAmount">$ 0,00</p>
           </div>
         </div>
 
@@ -264,6 +330,9 @@
           <div class="panel lg:col-span-2">
             <div class="panel-header"><p class="panel-title">Registrar entrada</p></div>
             <form id="entradaForm" class="movement-form">
+              <label class="form-label" style="margin-top:0">Sucursal</label>
+              <select id="entradaSucursal" class="form-input" required></select>
+
               <label class="form-label">Escanear o buscar (SKU / código de barras)</label>
               <div class="scan-row">
                 <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
@@ -296,7 +365,7 @@
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Producto</th><th>Cantidad</th><th>Nota</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th></tr>
                 </thead>
                 <tbody id="entradasHistoryBody"></tbody>
               </table>
@@ -312,6 +381,9 @@
           <div class="panel lg:col-span-2">
             <div class="panel-header"><p class="panel-title">Registrar salida</p></div>
             <form id="salidaForm" class="movement-form">
+              <label class="form-label" style="margin-top:0">Sucursal</label>
+              <select id="salidaSucursal" class="form-input" required></select>
+
               <label class="form-label">Escanear o buscar (SKU / código de barras)</label>
               <div class="scan-row">
                 <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
@@ -344,7 +416,7 @@
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Producto</th><th>Cantidad</th><th>Nota</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th></tr>
                 </thead>
                 <tbody id="salidasHistoryBody"></tbody>
               </table>
@@ -419,6 +491,12 @@
                 <input id="repHasta" type="date" class="form-input">
               </div>
               <div class="report-filter-group">
+                <label class="form-label" style="margin-top:0">Sucursal</label>
+                <select id="repSucursal" class="form-input">
+                  <option value="">Todas las sucursales</option>
+                </select>
+              </div>
+              <div class="report-filter-group">
                 <label class="form-label" style="margin-top:0">Tipo</label>
                 <select id="repTipo" class="form-input">
                   <option value="">Entradas y salidas</option>
@@ -452,6 +530,7 @@
             <div class="report-columns">
               <p class="form-label" style="margin-top:0; width:100%">Columnas a incluir</p>
               <label class="checkbox-chip"><input type="checkbox" id="colFecha" checked>Fecha</label>
+              <label class="checkbox-chip"><input type="checkbox" id="colSucursal" checked>Sucursal</label>
               <label class="checkbox-chip"><input type="checkbox" id="colTipo" checked>Tipo</label>
               <label class="checkbox-chip"><input type="checkbox" id="colProducto" checked>Producto</label>
               <label class="checkbox-chip"><input type="checkbox" id="colCategoria" checked>Categoría</label>
@@ -476,7 +555,7 @@
             <div class="overflow-x-auto mt-3">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Nota</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Tipo</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Nota</th></tr>
                 </thead>
                 <tbody id="repMovementsBody"></tbody>
               </table>
@@ -539,7 +618,7 @@
       <section id="section-usuarios" class="app-section">
         <div class="panel">
           <div class="table-toolbar">
-            <p class="text-sm text-slate-500">Gestioná quién tiene acceso a tu cuenta de Boxly</p>
+            <p class="text-sm text-slate-500">Gestioná quién tiene acceso a tu cuenta de Boxly, con qué rol y en qué sucursal</p>
             <button id="openAddUser" class="btn-primary">
               <i data-lucide="user-plus" class="h-4 w-4"></i>
               Invitar usuario
@@ -548,11 +627,146 @@
           <div class="overflow-x-auto mt-3">
             <table class="app-table">
               <thead>
-                <tr><th>Usuario</th><th>Email</th><th>Rol</th><th class="text-right">Acciones</th></tr>
+                <tr><th>Usuario</th><th>Email</th><th>Rol</th><th>Sucursal</th><th class="text-right">Acciones</th></tr>
               </thead>
               <tbody id="usersTableBody"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- ============ SUCURSALES ============ -->
+      <section id="section-sucursales" class="app-section">
+        <div class="panel">
+          <div class="table-toolbar">
+            <p class="text-sm text-slate-500">Administrá las sucursales de tu negocio. Cada movimiento y cada usuario queda asociado a una.</p>
+            <button id="openAddSucursal" class="btn-primary">
+              <i data-lucide="plus" class="h-4 w-4"></i>
+              Nueva sucursal
+            </button>
+          </div>
+          <div class="overflow-x-auto mt-3">
+            <table class="app-table">
+              <thead>
+                <tr><th>Sucursal</th><th>Dirección</th><th>Usuarios asignados</th><th class="text-right">Acciones</th></tr>
+              </thead>
+              <tbody id="sucursalesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel mt-5">
+          <div class="table-toolbar">
+            <div>
+              <p class="panel-title">Encargados de sucursal</p>
+              <p class="text-sm text-slate-500 mt-1">Creá el acceso de un encargado: queda limitado a ver y operar solo la sucursal que le asignes.</p>
+            </div>
+            <button id="openAddEncargado" class="btn-primary">
+              <i data-lucide="user-cog" class="h-4 w-4"></i>
+              Nuevo encargado
+            </button>
+          </div>
+          <div class="overflow-x-auto mt-3">
+            <table class="app-table">
+              <thead>
+                <tr><th>Encargado</th><th>Email</th><th>Sucursal asignada</th><th>Estado</th><th class="text-right">Acciones</th></tr>
+              </thead>
+              <tbody id="encargadosTableBody"></tbody>
+            </table>
+          </div>
+          <p id="encargadosEmptyState" class="empty-state hidden">Todavía no creaste encargados de sucursal.</p>
+        </div>
+      </section>
+
+      <!-- ============ MI PLAN ============ -->
+      <section id="section-mi-plan" class="app-section">
+        <div class="panel plan-hero" data-reveal>
+          <div class="plan-hero-top">
+            <div>
+              <span class="plan-hero-badge" id="miPlanBadge"><i data-lucide="gem" class="h-3.5 w-3.5"></i> Plan actual</span>
+              <h2 class="plan-hero-name" id="miPlanNombre">Plan Básico</h2>
+              <p class="plan-hero-meta" id="miPlanMeta">Próximo pago: —</p>
+            </div>
+            <div class="plan-hero-price" id="miPlanPrecio">$12 <span>USD/mes</span></div>
+          </div>
+
+          <div class="plan-usage-grid">
+            <div class="plan-usage-item">
+              <div class="plan-usage-head">
+                <span>Sucursales</span>
+                <span id="miPlanUsoSucursales" class="font-mono">0 / 1</span>
+              </div>
+              <div class="bar-track"><div id="miPlanBarSucursales" class="bar-fill bar-fill-stock" style="width:0%"></div></div>
+            </div>
+            <div class="plan-usage-item">
+              <div class="plan-usage-head">
+                <span>Productos</span>
+                <span id="miPlanUsoProductos" class="font-mono">0 / 100</span>
+              </div>
+              <div class="bar-track"><div id="miPlanBarProductos" class="bar-fill bar-fill-stock" style="width:0%"></div></div>
+            </div>
+            <div class="plan-usage-item">
+              <div class="plan-usage-head">
+                <span>Documentos (movimientos)</span>
+                <span id="miPlanUsoDocumentos" class="font-mono">0 / 200</span>
+              </div>
+              <div class="bar-track"><div id="miPlanBarDocumentos" class="bar-fill bar-fill-stock" style="width:0%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel mt-5" data-reveal style="transition-delay:60ms">
+          <div class="panel-header">
+            <p class="panel-title">Cambiar o mejorar tu plan</p>
+          </div>
+          <p class="text-sm text-slate-500 mt-1">Las suscripciones se procesan de forma segura con PayPal. Tu plan se activa automáticamente apenas se confirma el pago.</p>
+
+          <div class="paywall-plans paywall-plans-3 plan-pricing-grid mt-4">
+            <div class="paywall-plan" id="planCardBasico" data-tier="basico">
+              <p class="plan-name">Básico</p>
+              <p class="plan-price">$12 <span>USD/mes</span></p>
+              <ul class="plan-features">
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> 1 sucursal</li>
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Hasta 100 productos</li>
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Hasta 200 documentos/mes</li>
+              </ul>
+              <div id="paypalBtnBasico" class="paypal-btn-slot"></div>
+              <button class="btn-paypal plan-demo-btn" data-plan-demo="basico" type="button">
+                <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
+                Suscribirme con PayPal
+              </button>
+            </div>
+            <div class="paywall-plan featured" id="planCardPro" data-tier="pro">
+              <span class="plan-tag">Más elegido</span>
+              <p class="plan-name">Pro</p>
+              <p class="plan-price">$18 <span>USD/mes</span></p>
+              <ul class="plan-features">
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Hasta 5 sucursales</li>
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Hasta 1.000 productos</li>
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Hasta 2.000 documentos/mes</li>
+              </ul>
+              <div id="paypalBtnPro" class="paypal-btn-slot"></div>
+              <button class="btn-paypal plan-demo-btn" data-plan-demo="pro" type="button">
+                <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
+                Suscribirme con PayPal
+              </button>
+            </div>
+            <div class="paywall-plan" id="planCardPremium" data-tier="premium">
+              <p class="plan-name">Premium</p>
+              <p class="plan-price">$25 <span>USD/mes</span></p>
+              <ul class="plan-features">
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Sucursales ilimitadas</li>
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Productos ilimitados</li>
+                <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Documentos ilimitados</li>
+              </ul>
+              <div id="paypalBtnPremium" class="paypal-btn-slot"></div>
+              <button class="btn-paypal plan-demo-btn" data-plan-demo="premium" type="button">
+                <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
+                Suscribirme con PayPal
+              </button>
+            </div>
+          </div>
+          <p class="paywall-footnote">Los botones "Suscribirme con PayPal" reales aparecen cuando configurás <code>PAYPAL_CLIENT_ID</code> y los <code>PAYPAL_PLAN_IDS</code> en <code>app.js</code>. Mientras tanto, el botón inferior de cada tarjeta simula la activación para que puedas probar el flujo.</p>
         </div>
       </section>
 
@@ -740,7 +954,7 @@
       <h2 class="paywall-title">Elegí tu plan para seguir usando Boxly</h2>
       <p class="paywall-subtitle">Tus datos siguen guardados. Activá un plan y volvé a tener acceso completo al panel.</p>
     </div>
-    <div class="paywall-plans">
+    <div class="paywall-plans paywall-plans-3">
       <div class="paywall-plan">
         <p class="plan-name">Mensual</p>
         <p class="plan-price">$9.990 <span>ARS/mes</span></p>
@@ -749,8 +963,22 @@
           <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Reportes en PDF y Excel</li>
           <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Firma digital para auditorías</li>
         </ul>
-        <button id="paywallMensualBtn" class="btn-paypal">
-          <i data-lucide="credit-card" class="h-4 w-4"></i>
+        <button id="paywallMensualBtn" class="btn-paypal" data-plan="mensual">
+          <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
+          Pagar con PayPal
+        </button>
+      </div>
+      <div class="paywall-plan">
+        <span class="plan-tag">1 mes gratis</span>
+        <p class="plan-name">Semestral</p>
+        <p class="plan-price">$52.990 <span>ARS/6 meses</span></p>
+        <ul class="plan-features">
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Todo lo del plan mensual</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Ahorrás un mes completo</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Múltiples sucursales</li>
+        </ul>
+        <button id="paywallSemestralBtn" class="btn-paypal" data-plan="semestral">
+          <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
           Pagar con PayPal
         </button>
       </div>
@@ -759,12 +987,12 @@
         <p class="plan-name">Anual</p>
         <p class="plan-price">$89.990 <span>ARS/año</span></p>
         <ul class="plan-features">
-          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Todo lo del plan mensual</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Todo lo del plan semestral</li>
           <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Precio congelado por 12 meses</li>
           <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Soporte prioritario</li>
         </ul>
-        <button id="paywallAnualBtn" class="btn-paypal">
-          <i data-lucide="credit-card" class="h-4 w-4"></i>
+        <button id="paywallAnualBtn" class="btn-paypal" data-plan="anual">
+          <svg viewBox="0 0 24 24" class="paypal-mark" aria-hidden="true"><path fill="currentColor" d="M8.5 20.6 9.8 13H7l.4-2.5C8 6.7 9.9 5 13.6 5c2.5 0 4.4.8 4.4 3 0 .5-.1 1-.2 1.5 1.2.7 1.9 1.9 1.7 3.6-.4 3-2.7 4.6-6 4.6h-1.4l-.7 4-2.9-1.1Z"/></svg>
           Pagar con PayPal
         </button>
       </div>
