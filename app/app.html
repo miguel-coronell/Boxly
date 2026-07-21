@@ -136,6 +136,12 @@
       </div>
     </header>
 
+    <div id="trialBanner" class="trial-banner hidden">
+      <i data-lucide="clock" class="h-4 w-4"></i>
+      <span id="trialBannerText">Prueba gratis: te quedan 7 días.</span>
+      <button id="trialUpgradeBtn" class="trial-upgrade-btn">Ver planes</button>
+    </div>
+
     <main class="app-content">
 
       <!-- ============ DASHBOARD ============ -->
@@ -720,6 +726,50 @@
         <i data-lucide="arrow-right" class="h-4 w-4"></i>
       </button>
     </div>
+  </div>
+</div>
+
+<!-- ============ PAYWALL (prueba gratis / planes) ============ -->
+<div id="paywallBackdrop" class="paywall-backdrop">
+  <div class="paywall-box" role="dialog" aria-modal="true" aria-label="Planes de Boxly">
+    <button id="paywallCloseBtn" class="paywall-close" aria-label="Cerrar">
+      <i data-lucide="x" class="h-5 w-5"></i>
+    </button>
+    <div class="paywall-header">
+      <span class="paywall-badge"><i data-lucide="lock" class="h-3.5 w-3.5"></i> Prueba gratis finalizada</span>
+      <h2 class="paywall-title">Elegí tu plan para seguir usando Boxly</h2>
+      <p class="paywall-subtitle">Tus datos siguen guardados. Activá un plan y volvé a tener acceso completo al panel.</p>
+    </div>
+    <div class="paywall-plans">
+      <div class="paywall-plan">
+        <p class="plan-name">Mensual</p>
+        <p class="plan-price">$9.990 <span>ARS/mes</span></p>
+        <ul class="plan-features">
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Productos e inventario ilimitados</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Reportes en PDF y Excel</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Firma digital para auditorías</li>
+        </ul>
+        <button id="paywallMensualBtn" class="btn-paypal">
+          <i data-lucide="credit-card" class="h-4 w-4"></i>
+          Pagar con PayPal
+        </button>
+      </div>
+      <div class="paywall-plan featured">
+        <span class="plan-tag">2 meses gratis</span>
+        <p class="plan-name">Anual</p>
+        <p class="plan-price">$89.990 <span>ARS/año</span></p>
+        <ul class="plan-features">
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Todo lo del plan mensual</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Precio congelado por 12 meses</li>
+          <li><i data-lucide="check" class="h-3.5 w-3.5"></i> Soporte prioritario</li>
+        </ul>
+        <button id="paywallAnualBtn" class="btn-paypal">
+          <i data-lucide="credit-card" class="h-4 w-4"></i>
+          Pagar con PayPal
+        </button>
+      </div>
+    </div>
+    <p class="paywall-footnote">Pago simulado en modo demo. Al conectar el backend, esto procesa pagos reales con PayPal.</p>
   </div>
 </div>
 

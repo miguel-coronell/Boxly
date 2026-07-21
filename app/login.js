@@ -236,7 +236,7 @@ document.getElementById("forgotPasswordBtn").addEventListener("click", () => {
 /* ---------------------------- Ayuda (enlace inferior) ---------------------------- */
 document.getElementById("helpLink").addEventListener("click", (e) => {
   e.preventDefault();
-  showToast("Escribinos a soporte@boxlyapp.com o por WhatsApp, te respondemos a la brevedad.", "success");
+  showToast("Escribinos a miguelcoronell@outlook.com o por WhatsApp, te respondemos a la brevedad.", "success");
 });
 
 /* ---------------------------- Errores de Firebase en español ---------------------------- */

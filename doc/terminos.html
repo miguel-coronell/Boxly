@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Términos y Condiciones — Boxly</title>
+<meta name="description" content="Términos y Condiciones de uso de Boxly, el sistema de control de stock e inventario en tiempo real.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<link rel="icon" href="../img/icono_pagina.png" type="image/png">
+<link rel="apple-touch-icon" href="../img/icono_pagina.png">
+</head>
+<body class="antialiased is-loading">
+
+<!-- ============ PRELOADER ============ -->
+<div id="preloader" aria-hidden="true">
+  <div class="pre-box">
+    <svg viewBox="0 0 120 120" fill="none">
+      <path class="pre-arrow a1" d="M10 34 Q 26 20 44 30" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a2" d="M6 60 H 46" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a3" d="M10 86 Q 26 100 44 90" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <g class="pre-cube">
+        <polygon points="60,28 96,44 96,80 60,96 24,80 24,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <polyline points="24,44 60,60 96,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <line x1="60" y1="60" x2="60" y2="96" stroke="#D7F205" stroke-width="3.5"/>
+      </g>
+    </svg>
+    <span class="pre-label">Cargando flujo</span>
+  </div>
+</div>
+
+<!-- ============ NAV ============ -->
+<header id="siteHeader" class="fixed top-0 inset-x-0 z-50">
+  <div class="mx-3 mt-3 md:mx-6 md:mt-4">
+    <nav class="nav-glass relative max-w-6xl mx-auto flex items-center justify-between rounded-2xl px-4 md:px-5 py-2.5 md:py-3">
+      <a href="../index.html#inicio" class="flex items-center gap-2">
+        <img src="../img/boxly-logo.png" alt="Boxly — Optimización de Flujo" class="h-8 md:h-9 w-auto">
+      </a>
+
+      <div class="hidden md:flex items-center gap-8 text-[13.5px] font-semibold text-ink/60">
+        <a href="../index.html#inicio" class="nav-link hover:text-deep transition-colors">Inicio</a>
+        <a href="../index.html#funciones" class="nav-link hover:text-deep transition-colors">Funciones</a>
+        <a href="../index.html#como-funciona" class="nav-link hover:text-deep transition-colors">Cómo funciona</a>
+        <a href="../index.html#precios" class="nav-link hover:text-deep transition-colors">Precios</a>
+        <a href="../index.html#faq" class="nav-link hover:text-deep transition-colors">Preguntas</a>
+      </div>
+
+      <a href="../app/login.html" class="hidden md:inline-flex text-[13px] font-bold px-4 py-2.5 rounded-xl bg-gradient-to-br from-deep to-dark text-white hover:shadow-lg hover:-translate-y-0.5 transition-all shadow-sm">
+        Probar Gratis
+      </a>
+
+      <button id="menuToggle" type="button" class="md:hidden relative w-10 h-10 rounded-xl bg-soft flex items-center justify-center" aria-label="Abrir menú" aria-expanded="false" aria-controls="mobilePanel">
+        <i data-lucide="menu" id="iconMenu" class="w-5 h-5 text-deep"></i>
+        <i data-lucide="x" id="iconClose" class="w-5 h-5 text-deep hidden"></i>
+      </button>
+    </nav>
+
+    <div id="mobilePanel" class="max-w-6xl mx-auto md:hidden">
+      <div class="mt-2 bg-white rounded-2xl border border-slate-100 shadow-[0_20px_40px_-10px_rgba(10,38,34,0.25)] p-3">
+        <div class="flex items-center justify-between px-2 pb-2 mb-1 border-b border-slate-100">
+          <img src="../img/boxly-logo.png" alt="Boxly" class="h-7 w-auto">
+          <button id="mobileClose" type="button" class="w-8 h-8 rounded-lg bg-soft flex items-center justify-center" aria-label="Cerrar menú">
+            <i data-lucide="x" class="w-4 h-4 text-deep"></i>
+          </button>
+        </div>
+        <a href="index.html#inicio" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="home" class="w-[18px] h-[18px] text-deep"></i> Inicio
+        </a>
+        <a href="index.html#funciones" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="layout-grid" class="w-[18px] h-[18px] text-deep"></i> Funciones
+        </a>
+        <a href="../index.html#como-funciona" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="route" class="w-[18px] h-[18px] text-deep"></i> Cómo funciona
+        </a>
+        <a href="index.html#precios" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="tag" class="w-[18px] h-[18px] text-deep"></i> Precios
+        </a>
+        <a href="index.html#faq" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="circle-help" class="w-[18px] h-[18px] text-deep"></i> Preguntas
+        </a>
+        <a href="../index.html#contacto" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="mail" class="w-[18px] h-[18px] text-deep"></i> Contacto
+        </a>
+        <a href="../app/login.html" class="mobile-link mt-1 flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-deep text-white font-extrabold text-[13px] uppercase tracking-wide">
+          <i data-lucide="arrow-right" class="w-4 h-4"></i> Probar Demo Gratis
+        </a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div id="mobileBackdrop" class="md:hidden"></div>
+
+<!-- ============ CONTENIDO LEGAL ============ -->
+<main class="pt-32 pb-24 md:pt-44 md:pb-28 bg-paper">
+  <div class="max-w-3xl mx-auto px-5 md:px-6">
+
+    <a href="../index.html" class="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-deep hover:text-dark transition-colors mb-6">
+      <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Volver al inicio
+    </a>
+
+    <span class="text-[12px] font-extrabold uppercase tracking-wider text-deep">Legal</span>
+    <h1 class="font-display font-extrabold text-3xl md:text-4xl text-ink tracking-tight mt-3 mb-2">Términos y Condiciones</h1>
+    <p class="text-[13px] text-slate-400 mono mb-12">Última actualización: 20 de julio de 2026</p>
+
+    <div class="space-y-10">
+
+      <section>
+        <p class="text-[14.5px] text-slate-600 leading-relaxed">
+          Estos Términos y Condiciones regulan el uso de Boxly, un sistema de control de stock e inventario en tiempo real. Al crear una cuenta o usar la plataforma, aceptás estos términos en su totalidad. Si no estás de acuerdo, te pedimos que no utilices el servicio.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">1. Descripción del servicio</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Boxly es una plataforma web y móvil que permite gestionar productos, controlar stock, registrar entradas y salidas, administrar múltiples depósitos, generar alertas de stock bajo y obtener reportes de inventario. No ofrecemos servicios de cotización, facturación electrónica ni contabilidad; Boxly está enfocado exclusivamente en el control de inventario.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">2. Cuenta de usuario</h2>
+        <ul class="space-y-2.5 text-[14px] text-slate-600 leading-relaxed">
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Debés proporcionar información veraz y actualizada al registrarte.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Sos responsable de mantener la confidencialidad de tu contraseña y de toda la actividad que ocurra en tu cuenta.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Si sumás usuarios a tu equipo, sos responsable de definir sus permisos y del uso que le den a la plataforma.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Debés ser mayor de edad o contar con autorización legal para contratar en nombre de tu empresa.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">3. Planes y facturación</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed mb-3">Boxly ofrece los siguientes planes:</p>
+        <ul class="space-y-2.5 text-[14px] text-slate-600 leading-relaxed">
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><strong class="text-ink">Mensual (US$13/mes):</strong> suscripción recurrente, renovación automática hasta que la canceles.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><strong class="text-ink">Anual PRO (US$130/año):</strong> suscripción recurrente anual con renovación automática.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><strong class="text-ink">Licencia Perpetua (US$325 pago único):</strong> acceso de por vida a la versión adquirida y sus actualizaciones futuras, sin pagos recurrentes.</li>
+        </ul>
+        <p class="text-[14px] text-slate-600 leading-relaxed mt-3">
+          Los precios pueden actualizarse; si esto afecta un plan activo, te avisaremos con anticipación razonable. Las suscripciones se cobran por adelantado y, salvo que la ley aplicable indique lo contrario, los pagos ya realizados no son reembolsables.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">4. Uso aceptable</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed mb-3">Al usar Boxly, te comprometés a no:</p>
+        <ul class="space-y-2.5 text-[14px] text-slate-600 leading-relaxed">
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Usar la plataforma para actividades ilegales o no autorizadas.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Intentar acceder sin autorización a cuentas o datos de otros usuarios.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Realizar ingeniería inversa, copiar o revender el software sin autorización.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Sobrecargar o interferir deliberadamente con el funcionamiento de la plataforma.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">5. Tus datos de inventario</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Vos sos el titular y responsable de la información de productos, stock y movimientos que cargás en Boxly. Nosotros la almacenamos y procesamos para brindarte el servicio, pero no somos responsables por errores de carga, decisiones de stock ni pérdidas derivadas del uso incorrecto de la plataforma. Podés exportar tu información en cualquier momento desde tu panel.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">6. Propiedad intelectual</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          El software, diseño, marca y contenido de Boxly son propiedad de sus desarrolladores. Esta licencia te otorga el derecho de uso de la plataforma según el plan contratado, pero no te transfiere ningún derecho de propiedad sobre el software.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">7. Disponibilidad del servicio</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Trabajamos para mantener Boxly disponible en todo momento, pero no garantizamos un servicio ininterrumpido. Puede haber tareas de mantenimiento, actualizaciones o eventos fuera de nuestro control que afecten temporalmente el acceso a la plataforma.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">8. Limitación de responsabilidad</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Boxly se ofrece "tal cual". En la medida permitida por la ley, no somos responsables por daños indirectos, pérdida de ganancias o de datos que puedan surgir del uso o la imposibilidad de uso de la plataforma.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">9. Cancelación y terminación</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Podés cancelar tu suscripción cuando quieras desde tu panel de configuración; el acceso se mantiene hasta el fin del período ya pagado. Nos reservamos el derecho de suspender o cancelar cuentas que incumplan estos términos o que representen un riesgo para la plataforma o para otros usuarios.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">10. Cambios a estos términos</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Podemos actualizar estos Términos y Condiciones ocasionalmente. Si los cambios son significativos, te notificaremos por correo electrónico o dentro de la plataforma antes de que entren en vigencia.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">11. Contacto</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Ante cualquier consulta sobre estos términos, escribinos a <a href="mailto:miguelcoronell@outlook.com" class="text-deep font-semibold hover:underline">miguelcoronell@outlook.com</a>.
+        </p>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="border-t border-slate-200 pt-14 pb-8">
+  <div class="max-w-6xl mx-auto px-5 md:px-6">
+    <div class="grid sm:grid-cols-2 md:grid-cols-4 gap-10 mb-12">
+      <div class="col-span-2 md:col-span-1">
+        <a href="../index.html" class="inline-flex items-center gap-2.5 mb-4">
+          <img src="../img/boxly-logo.png" alt="Boxly" class="h-7 w-auto">
+        </a>
+        <p class="text-[13px] text-slate-500 leading-relaxed max-w-[220px]">Control de stock e inventario en tiempo real, para que tu flujo logístico nunca se corte.</p>
+      </div>
+
+      <div>
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Producto</h4>
+        <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
+          <li><a href="../index.html#funciones" class="hover:text-deep transition-colors">Funciones</a></li>
+          <li><a href="../index.html#como-funciona" class="hover:text-deep transition-colors">Cómo funciona</a></li>
+          <li><a href="../index.html#precios" class="hover:text-deep transition-colors">Precios</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Soporte</h4>
+        <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
+          <li><a href="../index.html#faq" class="hover:text-deep transition-colors">Preguntas frecuentes</a></li>
+          <li><a href="../index.html#contacto" class="hover:text-deep transition-colors">Contacto</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Contacto</h4>
+        <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
+          <li class="flex items-center gap-2"><i data-lucide="mail" class="w-3.5 h-3.5 text-slate-400"></i>miguelcoronell@outlook.com</li>
+          <li class="flex items-center gap-2"><i data-lucide="message-circle" class="w-3.5 h-3.5 text-slate-400"></i>Chat por WhatsApp</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="border-t border-slate-100 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <p class="text-[12px] text-slate-400 font-medium">© 2026 Boxly. Todos los derechos reservados.</p>
+      <div class="flex items-center gap-5 text-[12px] font-semibold text-slate-400">
+        <a href="privacidad.html" class="hover:text-deep transition-colors">Privacidad</a>
+        <a href="terminos.html" class="text-deep transition-colors">Términos</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ CHAT WIDGET (Boxly Virtual Assistant) ============ -->
+<button id="chatToggle" type="button" aria-expanded="false" aria-controls="chatPanel" class="fixed bottom-5 right-5 md:bottom-7 md:right-7 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-deep to-dark flex items-center justify-center">
+  <i data-lucide="message-circle" class="w-6 h-6 text-white"></i>
+  <span id="chatBadge" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-lime border-2 border-white"></span>
+</button>
+
+<div id="chatPanel" class="fixed bottom-24 right-5 md:bottom-28 md:right-7 z-50 w-[92vw] max-w-[360px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(10,38,34,0.35)] flex flex-col overflow-hidden" style="height: 480px; max-height: 70vh;">
+  <div class="flex items-center justify-between px-4 py-3.5 bg-gradient-to-br from-deep to-dark">
+    <div class="flex items-center gap-2.5">
+      <span class="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center"><i data-lucide="bot" class="w-4 h-4 text-white"></i></span>
+      <div>
+        <p class="text-[13px] font-bold text-white leading-tight">Asistente Boxly</p>
+        <p class="text-[10.5px] text-white/60 leading-tight">Te ayudo a elegir tu plan</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <button id="chatRestart" type="button" aria-label="Reiniciar chat" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-white/80"></i></button>
+      <button id="chatClose" type="button" aria-label="Cerrar chat" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center"><i data-lucide="x" class="w-4 h-4 text-white/80"></i></button>
+    </div>
+  </div>
+  <div id="chatBody" class="flex-1 overflow-y-auto px-4 py-4"></div>
+</div>
+
+<script src="../script.js"></script>
+</body>
+</html>

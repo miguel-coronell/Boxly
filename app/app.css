@@ -863,6 +863,167 @@ select:focus-visible {
   padding: 1.5rem;
 }
 
+/* ===================== Banner de prueba gratis ===================== */
+.trial-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--soft);
+  color: var(--greendark);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.55rem 1.25rem;
+  border-bottom: 1px solid #DCEFE2;
+}
+.trial-banner.hidden { display: none; }
+.trial-upgrade-btn {
+  margin-left: auto;
+  background: var(--ink);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.32rem 0.8rem;
+  border-radius: 999px;
+  transition: transform 0.2s ease;
+}
+.trial-upgrade-btn:hover { transform: translateY(-1px); }
+
+/* ===================== Paywall ===================== */
+.paywall-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 38, 34, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.paywall-backdrop.is-open { opacity: 1; pointer-events: auto; }
+body.paywall-locked { overflow: hidden; }
+.paywall-box {
+  position: relative;
+  background: #ffffff;
+  border-radius: 1.5rem;
+  width: 100%;
+  max-width: 640px;
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 2rem;
+  box-shadow: 0 40px 90px -20px rgba(0, 0, 0, 0.5);
+}
+.paywall-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  color: #94A3B8;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.paywall-close:hover { color: var(--ink); transform: rotate(90deg); }
+.paywall-backdrop.is-forced .paywall-close { display: none; }
+.paywall-header { text-align: center; margin-bottom: 1.5rem; }
+.paywall-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #FEF2F2;
+  color: #B91C1C;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  margin-bottom: 0.75rem;
+}
+.paywall-title { font-size: 1.3rem; font-weight: 800; color: var(--ink); }
+.paywall-subtitle { font-size: 0.85rem; color: #64748B; margin-top: 0.4rem; }
+.paywall-plans { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 560px) {
+  .paywall-plans { grid-template-columns: 1fr; }
+}
+.paywall-plan {
+  position: relative;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 1rem;
+  padding: 1.25rem;
+}
+.paywall-plan.featured { border-color: var(--accent); background: var(--soft); }
+.plan-tag {
+  position: absolute;
+  top: -0.6rem;
+  right: 1rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.plan-name { font-size: 0.85rem; font-weight: 700; color: #64748B; }
+.plan-price { font-size: 1.5rem; font-weight: 800; color: var(--ink); margin-top: 0.2rem; }
+.plan-price span { font-size: 0.7rem; font-weight: 600; color: #94A3B8; }
+.plan-features { margin: 0.9rem 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.plan-features li { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: #475569; }
+.plan-features li i { color: var(--accent); flex-shrink: 0; }
+.btn-paypal {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #003087;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.65rem;
+  border-radius: 0.7rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.btn-paypal:hover { transform: translateY(-1px); box-shadow: 0 10px 25px -8px rgba(0, 48, 135, 0.5); }
+.paywall-footnote { text-align: center; font-size: 0.7rem; color: #94A3B8; margin-top: 1.25rem; }
+
+/* ===================== Fix: zoom automático en móvil ===================== */
+/* iOS/Safari hace zoom automático al enfocar un campo si su font-size es
+   menor a 16px. Eso es lo que corría el layout y "alejaba" el menú. Forzamos
+   16px en todos los campos SOLO en pantallas chicas, para no tocar la
+   densidad visual del escritorio. */
+@media (max-width: 767px) {
+  .form-input,
+  .filter-select,
+  .scan-input,
+  #globalSearch,
+  select,
+  textarea,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"] {
+    font-size: 16px !important;
+  }
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ===================== Fix: sidebar y topbar en pantallas angostas ===================== */
+@media (max-width: 480px) {
+  .app-sidebar { width: min(var(--sidebar-w), 82vw); }
+  .app-shell.mobile-open .app-sidebar { width: min(var(--sidebar-w), 82vw); }
+  .app-content { padding: 1rem; }
+  .app-topbar { padding-left: 1rem; padding-right: 1rem; flex-wrap: nowrap; }
+  .trial-banner { flex-wrap: wrap; padding: 0.5rem 1rem; }
+  .trial-upgrade-btn { margin-left: 0; }
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .paywall-box { padding: 1.25rem; }
+  .paywall-title { font-size: 1.1rem; }
+}
+
 /* ===================== Toasts ===================== */
 .toast-container {
   position: fixed;

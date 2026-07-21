@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de Privacidad — Boxly</title>
+<meta name="description" content="Política de Privacidad de Boxly: cómo recolectamos, usamos y protegemos los datos de tu cuenta e inventario.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<link rel="icon" href="../img/icono_pagina.png" type="image/png">
+<link rel="apple-touch-icon" href="../img/boxly-logo.png">
+</head>
+<body class="antialiased is-loading">
+
+<!-- ============ PRELOADER ============ -->
+<div id="preloader" aria-hidden="true">
+  <div class="pre-box">
+    <svg viewBox="0 0 120 120" fill="none">
+      <path class="pre-arrow a1" d="M10 34 Q 26 20 44 30" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a2" d="M6 60 H 46" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <path class="pre-arrow a3" d="M10 86 Q 26 100 44 90" stroke="#22C55E" stroke-width="4" stroke-linecap="round"/>
+      <g class="pre-cube">
+        <polygon points="60,28 96,44 96,80 60,96 24,80 24,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <polyline points="24,44 60,60 96,44" fill="none" stroke="#D7F205" stroke-width="3.5" stroke-linejoin="round"/>
+        <line x1="60" y1="60" x2="60" y2="96" stroke="#D7F205" stroke-width="3.5"/>
+      </g>
+    </svg>
+    <span class="pre-label">Cargando flujo</span>
+  </div>
+</div>
+
+<!-- ============ NAV ============ -->
+<header id="siteHeader" class="fixed top-0 inset-x-0 z-50">
+  <div class="mx-3 mt-3 md:mx-6 md:mt-4">
+    <nav class="nav-glass relative max-w-6xl mx-auto flex items-center justify-between rounded-2xl px-4 md:px-5 py-2.5 md:py-3">
+      <a href="../index.html#inicio" class="flex items-center gap-2">
+        <img src="../img/boxly-logo.png" alt="Boxly — Optimización de Flujo" class="h-8 md:h-9 w-auto">
+      </a>
+
+      <div class="hidden md:flex items-center gap-8 text-[13.5px] font-semibold text-ink/60">
+        <a href="../index.html#inicio" class="nav-link hover:text-deep transition-colors">Inicio</a>
+        <a href="../index.html#funciones" class="nav-link hover:text-deep transition-colors">Funciones</a>
+        <a href="../index.html#como-funciona" class="nav-link hover:text-deep transition-colors">Cómo funciona</a>
+        <a href="../index.html#precios" class="nav-link hover:text-deep transition-colors">Precios</a>
+        <a href="../index.html#faq" class="nav-link hover:text-deep transition-colors">Preguntas</a>
+      </div>
+
+      <a href="app/login.html" class="hidden md:inline-flex text-[13px] font-bold px-4 py-2.5 rounded-xl bg-gradient-to-br from-deep to-dark text-white hover:shadow-lg hover:-translate-y-0.5 transition-all shadow-sm">
+        Probar Gratis
+      </a>
+
+      <button id="menuToggle" type="button" class="md:hidden relative w-10 h-10 rounded-xl bg-soft flex items-center justify-center" aria-label="Abrir menú" aria-expanded="false" aria-controls="mobilePanel">
+        <i data-lucide="menu" id="iconMenu" class="w-5 h-5 text-deep"></i>
+        <i data-lucide="x" id="iconClose" class="w-5 h-5 text-deep hidden"></i>
+      </button>
+    </nav>
+
+    <div id="mobilePanel" class="max-w-6xl mx-auto md:hidden">
+      <div class="mt-2 bg-white rounded-2xl border border-slate-100 shadow-[0_20px_40px_-10px_rgba(10,38,34,0.25)] p-3">
+        <div class="flex items-center justify-between px-2 pb-2 mb-1 border-b border-slate-100">
+          <img src="../img/boxly-logo.png" alt="Boxly" class="h-7 w-auto">
+          <button id="mobileClose" type="button" class="w-8 h-8 rounded-lg bg-soft flex items-center justify-center" aria-label="Cerrar menú">
+            <i data-lucide="x" class="w-4 h-4 text-deep"></i>
+          </button>
+        </div>
+        <a href="../index.html#inicio" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="home" class="w-[18px] h-[18px] text-deep"></i> Inicio
+        </a>
+        <a href="../index.html#funciones" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="layout-grid" class="w-[18px] h-[18px] text-deep"></i> Funciones
+        </a>
+        <a href="../index.html#como-funciona" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="route" class="w-[18px] h-[18px] text-deep"></i> Cómo funciona
+        </a>
+        <a href="../index.html#precios" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="tag" class="w-[18px] h-[18px] text-deep"></i> Precios
+        </a>
+        <a href="../index.html#faq" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="circle-help" class="w-[18px] h-[18px] text-deep"></i> Preguntas
+        </a>
+        <a href="../index.html#contacto" class="mobile-link flex items-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14.5px] text-slate-600 hover:bg-soft hover:text-deep transition-colors">
+          <i data-lucide="mail" class="w-[18px] h-[18px] text-deep"></i> Contacto
+        </a>
+        <a href="../app/login.html" class="mobile-link mt-1 flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-deep text-white font-extrabold text-[13px] uppercase tracking-wide">
+          <i data-lucide="arrow-right" class="w-4 h-4"></i> Probar Demo Gratis
+        </a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div id="mobileBackdrop" class="md:hidden"></div>
+
+<!-- ============ CONTENIDO LEGAL ============ -->
+<main class="pt-32 pb-24 md:pt-44 md:pb-28 bg-paper">
+  <div class="max-w-3xl mx-auto px-5 md:px-6">
+
+    <a href="../index.html" class="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-deep hover:text-dark transition-colors mb-6">
+      <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Volver al inicio
+    </a>
+
+    <span class="text-[12px] font-extrabold uppercase tracking-wider text-deep">Legal</span>
+    <h1 class="font-display font-extrabold text-3xl md:text-4xl text-ink tracking-tight mt-3 mb-2">Política de Privacidad</h1>
+    <p class="text-[13px] text-slate-400 mono mb-12">Última actualización: 20 de julio de 2026</p>
+
+    <div class="space-y-10">
+
+      <section>
+        <p class="text-[14.5px] text-slate-600 leading-relaxed">
+          En Boxly nos tomamos en serio la privacidad de tus datos y los de tu operación. Esta política explica qué información recolectamos cuando usás nuestro sistema de control de stock e inventario, para qué la usamos y qué derechos tenés sobre ella.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">1. Información que recolectamos</h2>
+        <ul class="space-y-2.5 text-[14px] text-slate-600 leading-relaxed">
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><span><strong class="text-ink">Datos de cuenta:</strong> nombre, correo electrónico, contraseña (encriptada) y datos de facturación cuando contratás un plan pago.</span></li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><span><strong class="text-ink">Datos de inventario:</strong> productos, SKU, stock, movimientos de entrada y salida, categorías y demás información que cargás en la plataforma para gestionar tu operación.</span></li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><span><strong class="text-ink">Datos de uso:</strong> información técnica como dirección IP, tipo de dispositivo, navegador y páginas visitadas dentro de la app, con fines de seguridad y mejora del servicio.</span></li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i><span><strong class="text-ink">Datos de equipo:</strong> si sumás usuarios a tu cuenta, almacenamos sus datos de acceso y permisos asignados.</span></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">2. Cómo usamos tu información</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed mb-3">Usamos los datos recolectados exclusivamente para:</p>
+        <ul class="space-y-2.5 text-[14px] text-slate-600 leading-relaxed">
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Brindar y mantener el servicio de control de stock e inventario.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Generar alertas de stock bajo, reportes y estadísticas dentro de tu panel.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Procesar pagos y gestionar tu suscripción o licencia.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Enviarte comunicaciones relacionadas con el servicio (cambios en la plataforma, soporte, facturación).</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Prevenir fraude y proteger la seguridad de la plataforma.</li>
+        </ul>
+        <p class="text-[14px] text-slate-600 leading-relaxed mt-3">No vendemos ni compartimos tus datos de inventario con terceros para fines comerciales o publicitarios.</p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">3. Con quién compartimos información</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Trabajamos con proveedores de infraestructura y servicios (por ejemplo, hosting, autenticación y base de datos en la nube, y procesadores de pago) que tratan tus datos en nuestro nombre y bajo acuerdos de confidencialidad, únicamente para poder operar Boxly. También podemos compartir información si así lo exige la ley o una autoridad competente.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">4. Almacenamiento y seguridad</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Tus datos se almacenan en servidores con medidas de seguridad estándar de la industria (cifrado en tránsito, control de accesos y copias de seguridad periódicas). Aun así, ningún sistema es 100% infalible: te recomendamos usar contraseñas seguras y no compartir tus credenciales de acceso.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">5. Cookies</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Usamos cookies y almacenamiento local para mantener tu sesión iniciada, recordar tus preferencias y entender cómo se usa la plataforma. Podés desactivar las cookies desde la configuración de tu navegador, aunque esto puede afectar el funcionamiento de la app.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">6. Tus derechos</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed mb-3">En cualquier momento podés solicitarnos:</p>
+        <ul class="space-y-2.5 text-[14px] text-slate-600 leading-relaxed">
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Acceder a los datos personales que tenemos sobre vos.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Corregir datos incorrectos o desactualizados.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Solicitar la eliminación de tu cuenta y de tus datos, salvo obligaciones legales de conservación.</li>
+          <li class="flex items-start gap-2.5"><i data-lucide="check" class="w-4 h-4 text-deep mt-0.5 flex-shrink-0"></i>Exportar tu información de inventario en un formato legible.</li>
+        </ul>
+        <p class="text-[14px] text-slate-600 leading-relaxed mt-3">Para ejercer estos derechos, escribinos a <a href="mailto:miguelcoronell@outlook.com" class="text-deep font-semibold hover:underline">miguelcoronell@outlook.com</a>.</p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">7. Retención de datos</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Conservamos tus datos mientras tu cuenta esté activa. Si cancelás tu cuenta, tus datos se eliminan o anonimizan dentro de un plazo razonable, salvo que debamos conservarlos por obligaciones legales o contables.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">8. Cambios a esta política</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Podemos actualizar esta política ocasionalmente para reflejar cambios en el servicio o en la normativa aplicable. Si los cambios son importantes, te avisaremos por correo electrónico o dentro de la plataforma.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="font-display font-bold text-xl text-ink mb-3">9. Contacto</h2>
+        <p class="text-[14px] text-slate-600 leading-relaxed">
+          Si tenés preguntas sobre esta política o sobre cómo tratamos tus datos, escribinos a <a href="mailto:miguelcoronell@outlook.com" class="text-deep font-semibold hover:underline">miguelcoronell@outlook.com</a>.
+        </p>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="border-t border-slate-200 pt-14 pb-8">
+  <div class="max-w-6xl mx-auto px-5 md:px-6">
+    <div class="grid sm:grid-cols-2 md:grid-cols-4 gap-10 mb-12">
+      <div class="col-span-2 md:col-span-1">
+        <a href="../index.html" class="inline-flex items-center gap-2.5 mb-4">
+          <img src="../img/boxly-logo.png" alt="Boxly" class="h-7 w-auto">
+        </a>
+        <p class="text-[13px] text-slate-500 leading-relaxed max-w-[220px]">Control de stock e inventario en tiempo real, para que tu flujo logístico nunca se corte.</p>
+      </div>
+
+      <div>
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Producto</h4>
+        <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
+          <li><a href="../index.html#funciones" class="hover:text-deep transition-colors">Funciones</a></li>
+          <li><a href="../index.html#como-funciona" class="hover:text-deep transition-colors">Cómo funciona</a></li>
+          <li><a href="../index.html#precios" class="hover:text-deep transition-colors">Precios</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Soporte</h4>
+        <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
+          <li><a href="../index.html#faq" class="hover:text-deep transition-colors">Preguntas frecuentes</a></li>
+          <li><a href="../index.html#contacto" class="hover:text-deep transition-colors">Contacto</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Contacto</h4>
+        <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
+          <li class="flex items-center gap-2"><i data-lucide="mail" class="w-3.5 h-3.5 text-slate-400"></i>miguelcoronell@outlook.com</li>
+          <li class="flex items-center gap-2"><i data-lucide="message-circle" class="w-3.5 h-3.5 text-slate-400"></i>Chat por WhatsApp</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="border-t border-slate-100 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <p class="text-[12px] text-slate-400 font-medium">© 2026 Boxly. Todos los derechos reservados.</p>
+      <div class="flex items-center gap-5 text-[12px] font-semibold text-slate-400">
+        <a href="privacidad.html" class="text-deep transition-colors">Privacidad</a>
+        <a href="terminos.html" class="hover:text-deep transition-colors">Términos</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ CHAT WIDGET (Boxly Virtual Assistant) ============ -->
+<button id="chatToggle" type="button" aria-expanded="false" aria-controls="chatPanel" class="fixed bottom-5 right-5 md:bottom-7 md:right-7 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-deep to-dark flex items-center justify-center">
+  <i data-lucide="message-circle" class="w-6 h-6 text-white"></i>
+  <span id="chatBadge" class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-lime border-2 border-white"></span>
+</button>
+
+<div id="chatPanel" class="fixed bottom-24 right-5 md:bottom-28 md:right-7 z-50 w-[92vw] max-w-[360px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(10,38,34,0.35)] flex flex-col overflow-hidden" style="height: 480px; max-height: 70vh;">
+  <div class="flex items-center justify-between px-4 py-3.5 bg-gradient-to-br from-deep to-dark">
+    <div class="flex items-center gap-2.5">
+      <span class="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center"><i data-lucide="bot" class="w-4 h-4 text-white"></i></span>
+      <div>
+        <p class="text-[13px] font-bold text-white leading-tight">Asistente Boxly</p>
+        <p class="text-[10.5px] text-white/60 leading-tight">Te ayudo a elegir tu plan</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <button id="chatRestart" type="button" aria-label="Reiniciar chat" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-white/80"></i></button>
+      <button id="chatClose" type="button" aria-label="Cerrar chat" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center"><i data-lucide="x" class="w-4 h-4 text-white/80"></i></button>
+    </div>
+  </div>
+  <div id="chatBody" class="flex-1 overflow-y-auto px-4 py-4"></div>
+</div>
+
+<script src="../script.js"></script>
+</body>
+</html>

@@ -27,6 +27,109 @@ if (!CURRENT_USER) {
 }
 const CATEGORY_COLORS = ["#0E6B4F", "#22C55E", "#15803D", "#D7F205", "#B98A5E", "#94A3B8"];
 
+/* ---------------------------- Prueba gratis (7 días) + Paywall ----------------------------
+   Todo corre en localStorage por ahora (igual que el resto de la demo). Cuando conectes
+   el backend (Vercel + Firebase), reemplazá este control por uno en el servidor: guardá
+   la fecha de inicio y el estado del pago en Firestore, y confirmá el pago con un webhook
+   de PayPal antes de llamar a markPlanPaid(). Así nadie puede "resetear" la prueba borrando
+   el localStorage del navegador. */
+const TRIAL_KEY = "boxly_trial_v1";
+const TRIAL_DAYS = 7;
+const PLAN_PRICES = {
+  mensual: { label: "Mensual", days: 30 },
+  anual: { label: "Anual", days: 365 }
+};
+
+function getTrialStore() {
+  try {
+    return JSON.parse(localStorage.getItem(TRIAL_KEY) || "{}");
+  } catch (err) {
+    return {};
+  }
+}
+function saveTrialStore(store) {
+  localStorage.setItem(TRIAL_KEY, JSON.stringify(store));
+}
+function ensureTrial(uid) {
+  const store = getTrialStore();
+  if (!store[uid]) {
+    store[uid] = { start: new Date().toISOString(), plan: null, paidUntil: null };
+    saveTrialStore(store);
+  }
+  return store[uid];
+}
+function getTrialStatus(uid) {
+  const store = getTrialStore();
+  const data = store[uid] || ensureTrial(uid);
+  const now = new Date();
+  const start = new Date(data.start);
+  const daysUsed = Math.floor((now - start) / 86400000);
+  const daysLeft = Math.max(TRIAL_DAYS - daysUsed, 0);
+  const isPaid = !!(data.paidUntil && new Date(data.paidUntil) > now);
+  const expired = !isPaid && daysUsed >= TRIAL_DAYS;
+  return { daysUsed, daysLeft, isPaid, expired, plan: data.plan };
+}
+function markPlanPaid(uid, planKey) {
+  const store = getTrialStore();
+  const plan = PLAN_PRICES[planKey];
+  const paidUntil = new Date(Date.now() + plan.days * 86400000).toISOString();
+  store[uid] = { ...(store[uid] || {}), plan: planKey, paidUntil };
+  saveTrialStore(store);
+}
+
+function renderTrialBanner() {
+  const banner = document.getElementById("trialBanner");
+  if (!banner || !CURRENT_USER) return;
+  const status = getTrialStatus(CURRENT_USER.uid);
+  if (status.isPaid || status.expired) {
+    banner.classList.add("hidden");
+    return;
+  }
+  banner.classList.remove("hidden");
+  document.getElementById("trialBannerText").textContent =
+    status.daysLeft === 0
+      ? "Tu prueba gratis termina hoy."
+      : `Prueba gratis: te quedan ${status.daysLeft} día${status.daysLeft === 1 ? "" : "s"}.`;
+}
+
+function openPaywall(forced) {
+  const backdrop = document.getElementById("paywallBackdrop");
+  if (!backdrop) return;
+  backdrop.classList.toggle("is-forced", !!forced);
+  backdrop.classList.add("is-open");
+  document.body.classList.add("paywall-locked");
+}
+function closePaywall() {
+  const backdrop = document.getElementById("paywallBackdrop");
+  if (!backdrop || backdrop.classList.contains("is-forced")) return;
+  backdrop.classList.remove("is-open");
+  document.body.classList.remove("paywall-locked");
+}
+
+function handlePayPalClick(planKey) {
+  // ---- Modo demo: simula la aprobación del pago, sin backend real ----
+  // Cuando conectes Vercel + Firebase, cambiá esto por los botones reales
+  // "Smart Buttons" del SDK de PayPal, y solo llamá a markPlanPaid() después
+  // de que tu servidor confirme el pago (webhook de PayPal), nunca antes.
+  showToast("Modo demo: procesando pago con PayPal...", "success");
+  setTimeout(() => {
+    markPlanPaid(CURRENT_USER.uid, planKey);
+    showToast("¡Pago aprobado! Tu plan ya está activo.", "success");
+    const backdrop = document.getElementById("paywallBackdrop");
+    backdrop.classList.remove("is-forced", "is-open");
+    document.body.classList.remove("paywall-locked");
+    renderTrialBanner();
+  }, 1200);
+}
+
+function initTrialGuard() {
+  if (!CURRENT_USER) return;
+  ensureTrial(CURRENT_USER.uid);
+  const status = getTrialStatus(CURRENT_USER.uid);
+  renderTrialBanner();
+  if (status.expired) openPaywall(true);
+}
+
 /* Mapea el valor en español del <select> de estado (inventario) al estado interno
    devuelto por productStatus() ("ok" | "low" | "critical"). Este mapeo es lo que
    faltaba y provocaba que solo funcionara el filtro "OK". */
@@ -1977,10 +2080,20 @@ function initOnboardingTour() {
 /* =========================================================================
    Init
    ========================================================================= */
+const paywallMensualBtn = document.getElementById("paywallMensualBtn");
+const paywallAnualBtn = document.getElementById("paywallAnualBtn");
+const paywallCloseBtn = document.getElementById("paywallCloseBtn");
+const trialUpgradeBtn = document.getElementById("trialUpgradeBtn");
+if (paywallMensualBtn) paywallMensualBtn.addEventListener("click", () => handlePayPalClick("mensual"));
+if (paywallAnualBtn) paywallAnualBtn.addEventListener("click", () => handlePayPalClick("anual"));
+if (paywallCloseBtn) paywallCloseBtn.addEventListener("click", closePaywall);
+if (trialUpgradeBtn) trialUpgradeBtn.addEventListener("click", () => openPaywall(false));
+
 document.addEventListener("DOMContentLoaded", () => {
   lucide.createIcons();
   initReveal();
   renderAuthUser();
   renderDashboard();
   initOnboardingTour();
+  initTrialGuard();
 });

@@ -285,23 +285,112 @@
 
     <div id="deviceStage" data-active-device="movil" class="reveal" data-reveal>
       <div class="stage-frame bg-dark p-3 shadow-[0_30px_70px_-20px_rgba(10,38,34,0.45)]">
-        <div class="bg-white rounded-[inherit] w-full h-full p-5 text-left overflow-hidden">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-display font-bold text-[13px] text-ink">Depósito Norte</span>
-            <span class="inline-flex items-center gap-1.5 text-[10px] font-bold text-greendark bg-soft px-2 py-1 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-accent"></span> En vivo</span>
-          </div>
-          <div class="space-y-2.5">
-            <div class="bg-paper rounded-lg px-3 py-2.5 border border-slate-100 flex items-center justify-between">
-              <span class="text-[12px] font-bold text-ink">Pallets recibidos hoy</span>
-              <span class="text-[13px] font-extrabold text-deep">24</span>
+        <div class="bg-paper rounded-[inherit] w-full h-full flex text-left overflow-hidden">
+
+          <!-- mini sidebar (como la app real) -->
+          <aside class="w-14 flex-shrink-0 bg-dark flex flex-col items-center py-3 gap-3">
+            <span class="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center flex-shrink-0">
+              <svg viewBox="0 0 24 24" class="w-4 h-4"><polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5" fill="none" stroke="#D7F205" stroke-width="1.6" stroke-linejoin="round"/><polyline points="4,7.5 12,12 20,7.5" fill="none" stroke="#D7F205" stroke-width="1.6"/></svg>
+            </span>
+            <div class="flex flex-col items-center gap-2 mt-1">
+              <span class="w-8 h-8 rounded-lg bg-accent flex items-center justify-center"><i data-lucide="layout-dashboard" class="w-[15px] h-[15px] text-white"></i></span>
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center"><i data-lucide="box" class="w-[15px] h-[15px] text-white/45"></i></span>
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center"><i data-lucide="arrow-down-to-line" class="w-[15px] h-[15px] text-white/45"></i></span>
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center"><i data-lucide="arrow-up-from-line" class="w-[15px] h-[15px] text-white/45"></i></span>
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center"><i data-lucide="warehouse" class="w-[15px] h-[15px] text-white/45"></i></span>
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center relative">
+                <i data-lucide="bell" class="w-[15px] h-[15px] text-white/45"></i>
+                <span class="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500 text-white text-[7px] font-bold flex items-center justify-center">4</span>
+              </span>
             </div>
-            <div class="bg-paper rounded-lg px-3 py-2.5 border border-slate-100 flex items-center justify-between">
-              <span class="text-[12px] font-bold text-ink">Productos con stock bajo</span>
-              <span class="text-[13px] font-extrabold text-amber-500">7</span>
+          </aside>
+
+          <!-- main: mismo contenido y tamaño siempre, cambia el marco que lo rodea -->
+          <div class="flex-1 min-w-0 p-3">
+            <div class="flex items-center justify-between mb-2.5">
+              <p class="font-display font-extrabold text-[13px] text-ink leading-none">Dashboard</p>
+              <span class="inline-flex items-center gap-1 text-[8.5px] font-bold text-greendark bg-soft px-2 py-1 rounded-full flex-shrink-0"><span class="w-1.5 h-1.5 rounded-full bg-accent pulse-dot"></span> En vivo</span>
             </div>
-            <div class="bg-paper rounded-lg px-3 py-2.5 border border-slate-100 flex items-center justify-between">
-              <span class="text-[12px] font-bold text-ink">Órdenes pendientes</span>
-              <span class="text-[13px] font-extrabold text-deep">12</span>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div class="bg-white rounded-lg border border-slate-100 px-2.5 py-2 flex items-center gap-2">
+                <span class="w-6 h-6 rounded-md bg-soft flex items-center justify-center flex-shrink-0"><i data-lucide="box" class="w-3.5 h-3.5 text-deep"></i></span>
+                <div class="min-w-0">
+                  <p class="text-[7.5px] font-bold text-slate-400 uppercase tracking-wide truncate">Productos</p>
+                  <p class="mono text-[12px] font-extrabold text-ink leading-tight">13</p>
+                </div>
+              </div>
+              <div class="bg-white rounded-lg border border-slate-100 px-2.5 py-2 flex items-center gap-2">
+                <span class="w-6 h-6 rounded-md bg-soft flex items-center justify-center flex-shrink-0"><i data-lucide="package" class="w-3.5 h-3.5 text-deep"></i></span>
+                <div class="min-w-0">
+                  <p class="text-[7.5px] font-bold text-slate-400 uppercase tracking-wide truncate">Stock total</p>
+                  <p class="mono text-[12px] font-extrabold text-ink leading-tight">355 u.</p>
+                </div>
+              </div>
+              <div class="bg-white rounded-lg border border-slate-100 px-2.5 py-2 flex items-center gap-2">
+                <span class="w-6 h-6 rounded-md bg-purple-50 flex items-center justify-center flex-shrink-0"><i data-lucide="wallet" class="w-3.5 h-3.5 text-purple-500"></i></span>
+                <div class="min-w-0">
+                  <p class="text-[7.5px] font-bold text-slate-400 uppercase tracking-wide truncate">Valorización</p>
+                  <p class="mono text-[11px] font-extrabold text-ink leading-tight truncate">$1.972.450</p>
+                </div>
+              </div>
+              <div class="bg-white rounded-lg border border-slate-100 px-2.5 py-2 flex items-center gap-2">
+                <span class="w-6 h-6 rounded-md bg-red-50 flex items-center justify-center flex-shrink-0"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-red-500"></i></span>
+                <div class="min-w-0">
+                  <p class="text-[7.5px] font-bold text-slate-400 uppercase tracking-wide truncate">Alertas</p>
+                  <p class="mono text-[12px] font-extrabold text-red-500 leading-tight">4</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-2.5 bg-white rounded-lg border border-slate-100 p-2.5">
+              <p class="text-[8px] font-extrabold uppercase tracking-wide text-slate-400 mb-2">Movimientos recientes</p>
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="w-4 h-4 rounded-md bg-soft flex items-center justify-center flex-shrink-0"><i data-lucide="arrow-down" class="w-2.5 h-2.5 text-deep"></i></span>
+                    <span class="text-[10px] font-semibold text-ink truncate">Cuadernos Rayados x100 Hojas</span>
+                  </div>
+                  <span class="mono text-[10px] font-bold text-deep flex-shrink-0">+44</span>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="w-4 h-4 rounded-md bg-red-50 flex items-center justify-center flex-shrink-0"><i data-lucide="arrow-up" class="w-2.5 h-2.5 text-red-500"></i></span>
+                    <span class="text-[10px] font-semibold text-ink truncate">Yerba mate 1kg</span>
+                  </div>
+                  <span class="mono text-[10px] font-bold text-red-500 flex-shrink-0">-18</span>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="w-4 h-4 rounded-md bg-red-50 flex items-center justify-center flex-shrink-0"><i data-lucide="arrow-up" class="w-2.5 h-2.5 text-red-500"></i></span>
+                    <span class="text-[10px] font-semibold text-ink truncate">Control TV</span>
+                  </div>
+                  <span class="mono text-[10px] font-bold text-red-500 flex-shrink-0">-11</span>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="w-4 h-4 rounded-md bg-soft flex items-center justify-center flex-shrink-0"><i data-lucide="arrow-down" class="w-2.5 h-2.5 text-deep"></i></span>
+                    <span class="text-[10px] font-semibold text-ink truncate">Detergente 750ml</span>
+                  </div>
+                  <span class="mono text-[10px] font-bold text-deep flex-shrink-0">+40</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-2.5 bg-white rounded-lg border border-slate-100 p-2.5">
+              <p class="text-[8px] font-extrabold uppercase tracking-wide text-slate-400 mb-2">Inventario por categoría</p>
+              <div class="flex h-2 w-full rounded-full overflow-hidden">
+                <span class="bg-[#0E6B4F]" style="width:29%"></span>
+                <span class="bg-accent" style="width:25%"></span>
+                <span class="bg-[#0A2622]" style="width:24%"></span>
+                <span class="bg-lime" style="width:21%"></span>
+                <span class="bg-kraft" style="width:1%"></span>
+              </div>
+              <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                <span class="text-[8.5px] font-semibold text-slate-500 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-[#0E6B4F]"></span>Oficina 29%</span>
+                <span class="text-[8.5px] font-semibold text-slate-500 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-accent"></span>Libros 25%</span>
+                <span class="text-[8.5px] font-semibold text-slate-500 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-lime"></span>Hogar 21%</span>
+              </div>
             </div>
           </div>
         </div>
@@ -414,9 +503,9 @@
         <p class="text-[13px] text-slate-500 mb-5">Para arrancar sin compromiso</p>
         <p class="font-display font-extrabold text-4xl text-ink mb-1">US$13<span class="text-base font-semibold text-slate-400">/mes</span></p>
         <ul class="space-y-3 my-6 flex-1">
-          <li class="flex items-center gap-2.5 text-[13.5px] text-slate-600"><i data-lucide="check" class="w-4 h-4 text-deep"></i>Cotizaciones ilimitadas</li>
+          <li class="flex items-center gap-2.5 text-[13.5px] text-slate-600"><i data-lucide="check" class="w-4 h-4 text-deep"></i>Productos ilimitados</li>
           <li class="flex items-center gap-2.5 text-[13.5px] text-slate-600"><i data-lucide="check" class="w-4 h-4 text-deep"></i>1 depósito</li>
-          <li class="flex items-center gap-2.5 text-[13.5px] text-slate-600"><i data-lucide="check" class="w-4 h-4 text-deep"></i>Panel de KPIs</li>
+          <li class="flex items-center gap-2.5 text-[13.5px] text-slate-600"><i data-lucide="check" class="w-4 h-4 text-deep"></i>Alertas de stock bajo</li>
         </ul>
         <a href="#contacto" class="text-center px-6 py-3.5 rounded-xl border-2 border-slate-200 text-ink font-extrabold text-[13px] uppercase tracking-wide hover:border-deep hover:text-deep transition-colors">Elegir plan</a>
       </div>
@@ -428,7 +517,7 @@
         <p class="font-display font-extrabold text-4xl mb-1">US$130<span class="text-base font-semibold text-white/60">/año</span></p>
         <ul class="space-y-3 my-6 flex-1">
           <li class="flex items-center gap-2.5 text-[13.5px] text-white/90"><i data-lucide="check" class="w-4 h-4 price-check"></i>Múltiples depósitos</li>
-          <li class="flex items-center gap-2.5 text-[13.5px] text-white/90"><i data-lucide="check" class="w-4 h-4 price-check"></i>Múltiples rubros</li>
+          <li class="flex items-center gap-2.5 text-[13.5px] text-white/90"><i data-lucide="check" class="w-4 h-4 price-check"></i>Reportes y valorización de inventario</li>
           <li class="flex items-center gap-2.5 text-[13.5px] text-white/90"><i data-lucide="check" class="w-4 h-4 price-check"></i>Soporte prioritario</li>
         </ul>
         <a href="#contacto" class="text-center px-6 py-3.5 rounded-xl bg-white text-dark font-extrabold text-[13px] uppercase tracking-wide hover:bg-lime transition-colors">Elegir plan</a>
@@ -554,7 +643,7 @@
       <div>
         <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-4">Contacto</h4>
         <ul class="space-y-2.5 text-[13.5px] font-semibold text-slate-600">
-          <li class="flex items-center gap-2"><i data-lucide="mail" class="w-3.5 h-3.5 text-slate-400"></i>hola@boxly.app</li>
+          <li class="flex items-center gap-2"><i data-lucide="mail" class="w-3.5 h-3.5 text-slate-400"></i>miguelcoronell@outlook.com</li>
           <li class="flex items-center gap-2"><i data-lucide="message-circle" class="w-3.5 h-3.5 text-slate-400"></i>Chat por WhatsApp</li>
         </ul>
       </div>
@@ -563,8 +652,8 @@
     <div class="border-t border-slate-100 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
       <p class="text-[12px] text-slate-400 font-medium">© 2026 Boxly. Todos los derechos reservados.</p>
       <div class="flex items-center gap-5 text-[12px] font-semibold text-slate-400">
-        <a href="#" class="hover:text-deep transition-colors">Privacidad</a>
-        <a href="#" class="hover:text-deep transition-colors">Términos</a>
+        <a href="doc/privacidad.html" class="hover:text-deep transition-colors">Privacidad</a>
+        <a href="doc/terminos.html" class="hover:text-deep transition-colors">Términos</a>
       </div>
     </div>
   </div>
