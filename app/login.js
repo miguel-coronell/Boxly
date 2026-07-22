@@ -9,17 +9,8 @@ const AUTH_KEY = "boxly_auth_user";
 const NEW_USER_FLAG = "boxly_new_user";
 const DEMO_USERS_KEY = "boxly_demo_users";
 
-/* Si ya hay una sesión activa, va directo al panel.
-   Con Firebase configurado, la fuente de verdad es onAuthStateChanged (no confiamos
-   en un localStorage que podría estar viejo o manipulado). Sin Firebase, seguimos
-   usando el chequeo simple de localStorage del modo demo. */
+/* Si ya hay una sesión activa, va directo al panel. */
 (function redirectIfLoggedIn() {
-  if (isFirebaseReady()) {
-    initFirebase().onAuthStateChanged((user) => {
-      if (user) window.location.replace("app.html");
-    });
-    return;
-  }
   try {
     if (localStorage.getItem(AUTH_KEY)) {
       window.location.replace("app.html");
@@ -172,9 +163,9 @@ document.getElementById("registerForm").addEventListener("submit", (e) => {
     auth.createUserWithEmailAndPassword(email, password)
       .then((cred) => {
         cred.user.updateProfile({ displayName: nombre }).catch(() => {});
-        return crearDocumentosDeNegocio(cred.user.uid, { nombre, email, negocio }).then(() => {
-          setAuthUser({ uid: cred.user.uid, nombre, email, negocio, provider: "password" }, { isNewUser: true });
-        });
+        // Si activaste Firestore, acá conviene crear el documento de negocio:
+        // firestoreInstance.collection("users").doc(cred.user.uid).set({ nombre, email, negocio });
+        setAuthUser({ uid: cred.user.uid, nombre, email, negocio, provider: "password" }, { isNewUser: true });
       })
       .catch((err) => showToast(mapFirebaseError(err), "error"));
     return;
@@ -200,19 +191,13 @@ document.getElementById("googleBtn").addEventListener("click", () => {
     auth.signInWithPopup(provider)
       .then((result) => {
         const isNewUser = result.additionalUserInfo && result.additionalUserInfo.isNewUser;
-        const authUser = {
+        setAuthUser({
           uid: result.user.uid,
           nombre: result.user.displayName,
           email: result.user.email,
           foto: result.user.photoURL,
           provider: "google"
-        };
-        if (isNewUser) {
-          crearDocumentosDeNegocio(result.user.uid, { nombre: result.user.displayName, email: result.user.email, negocio: "" })
-            .then(() => setAuthUser(authUser, { isNewUser: true }));
-        } else {
-          setAuthUser(authUser, { isNewUser: false });
-        }
+        }, { isNewUser });
       })
       .catch((err) => showToast(mapFirebaseError(err), "error"));
     return;
@@ -253,43 +238,6 @@ document.getElementById("helpLink").addEventListener("click", (e) => {
   e.preventDefault();
   showToast("Escribinos a miguelcoronell@outlook.com o por WhatsApp, te respondemos a la brevedad.", "success");
 });
-
-/* ---------------------------- Alta de cuenta en Firestore ----------------------------
-   Se llama una sola vez, al registrarse (email o Google por primera vez). Crea:
-   - users/{uid}: perfil básico, negocioId apunta a sí mismo porque el que se registra
-     siempre es el Administrador/dueño de su propio negocio.
-   - negocios/{uid}: documento del negocio con los datos de prueba gratis (trialStart,
-     plan y paidUntil en null, tier "basico") — esto es lo que getTrialStatus() /
-     getPlanLimits() del app.js van a leer en cuanto migremos esa parte (Paso 6E). */
-function crearDocumentosDeNegocio(uid, { nombre, email, negocio }) {
-  const db = getFirestoreDb();
-  const negocioId = uid;
-  const batch = db.batch();
-
-  batch.set(db.collection("users").doc(uid), {
-    nombre: nombre || "",
-    email: email || "",
-    negocioId,
-    rol: "Administrador",
-    sucursalId: null
-  });
-
-  batch.set(db.collection("negocios").doc(negocioId), {
-    nombreNegocio: negocio || "Mi negocio",
-    moneda: "ARS",
-    stockMinimoDefault: 10,
-    notificaciones: true,
-    trialStart: firebase.firestore.FieldValue.serverTimestamp(),
-    plan: null,
-    paidUntil: null,
-    tier: "basico"
-  });
-
-  return batch.commit().catch((err) => {
-    console.error("No se pudieron crear los documentos de Firestore para el negocio nuevo.", err);
-    showToast("Tu cuenta se creó, pero hubo un problema guardando los datos iniciales. Contactá a soporte si algo no aparece bien.", "error");
-  });
-}
 
 /* ---------------------------- Errores de Firebase en español ---------------------------- */
 function mapFirebaseError(err) {
