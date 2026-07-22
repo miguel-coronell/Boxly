@@ -423,8 +423,8 @@ select:focus-visible {
 .stat-card {
   background: #ffffff;
   border: 1px solid #EEF2F7;
-  border-radius: 1rem;
-  padding: 1.1rem 1.25rem;
+  border-radius: 0.85rem;
+  padding: 0.75rem 0.9rem; /* antes: 1.1rem 1.25rem */
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 .stat-card:hover {
@@ -432,34 +432,43 @@ select:focus-visible {
   box-shadow: 0 16px 30px -18px rgba(10, 38, 34, 0.3);
 }
 .stat-card-top {
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.4rem; /* antes: 0.6rem */
 }
 .stat-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 2.1rem;
-  width: 2.1rem;
-  border-radius: 0.65rem;
+  height: 1.7rem;  /* antes: 2.1rem */
+  width: 1.7rem;   /* antes: 2.1rem */
+  border-radius: 0.5rem;
 }
+
+.stat-icon svg,
+.stat-icon i {
+  height: 0.85rem;
+  width: 0.85rem;
+}
+
+
+
+
 .stat-icon-blue { background: var(--soft); color: var(--deep); }
 .stat-icon-green { background: #DCFCE7; color: var(--greendark); }
 .stat-icon-purple { background: #EDE9FE; color: #6D28D9; }
 .stat-icon-red { background: #FEE2E2; color: #DC2626; }
 .stat-label {
-  font-size: 0.7rem;
+  font-size: 0.62rem; /* antes: 0.7rem */
   color: #94A3B8;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .stat-value {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 1.4rem;
+  font-size: 1.1rem; /* antes: 1.4rem */
   font-weight: 600;
   color: var(--ink);
-  margin-top: 0.2rem;
+  margin-top: 0.1rem; /* antes: 0.2rem */
 }
-
 /* ===================== Panels ===================== */
 .panel {
   background: #ffffff;
@@ -994,25 +1003,34 @@ body.paywall-locked { overflow: hidden; }
 .paywall-plan.featured .btn-paypal .paypal-mark { color: var(--ink); }
 .paywall-footnote { text-align: center; font-size: 0.7rem; color: #94A3B8; margin-top: 1.25rem; }
 
-/* ===================== Barra de filtros del Dashboard ===================== */
+
+/* ===================== Barra de filtros del Dashboard (grid 2 filas) ===================== */
 .dash-filterbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.85rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "fecha    fecha"
+    "sucursal categoria"
+    "clear    clear";
+  gap: 0.75rem;
   background: #ffffff;
   border: 1px solid #EEF2F7;
   border-radius: 1rem;
   padding: 0.9rem 1.1rem;
   margin-bottom: 1.25rem;
 }
+.dash-filterbar .dash-filter-group:nth-of-type(1) { grid-area: fecha; }
+.dash-filterbar .dash-filter-group:nth-of-type(2) { grid-area: sucursal; }
+.dash-filterbar .dash-filter-group:nth-of-type(3) { grid-area: categoria; }
+.dash-filterbar .dash-filter-clear { grid-area: clear; justify-self: start; }
+
 .dash-filter-group {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  min-width: 150px;
-  flex: 1 1 160px;
+  min-width: 0; /* reemplaza el min-width: 150px anterior para que no rompa el grid en mobile */
 }
+.dash-filterbar .filter-select { width: 100%; }
 .dash-filter-label {
   font-size: 0.7rem;
   font-weight: 700;
@@ -1035,10 +1053,18 @@ body.paywall-locked { overflow: hidden; }
   white-space: nowrap;
 }
 .dash-filter-clear:hover { background: #DCEFE2; }
+
+
 @media (max-width: 640px) {
-  .dash-filterbar { flex-direction: column; align-items: stretch; }
-  .dash-filter-group { min-width: 0; }
-  .dash-filter-clear { justify-content: center; }
+  .dash-filterbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "fecha"
+      "sucursal"
+      "categoria"
+      "clear";
+  }
+  .dash-filter-clear { justify-self: stretch; justify-content: center; }
 }
 
 /* ===================== Fix: zoom automático en móvil ===================== */
@@ -1491,6 +1517,39 @@ html {
   width: 1rem;
   border-radius: 999px;
 }
+
+
+.tour-progress-row {
+  margin-top: 0.75rem;
+}
+.tour-step-counter {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+.tour-progress-track {
+  width: 100%;
+  height: 0.35rem;
+  background: #E2E8F0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.tour-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--deep));
+  border-radius: 999px;
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+
+
+
 .tour-actions {
   display: flex;
   align-items: center;

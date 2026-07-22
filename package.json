@@ -1,0 +1,9 @@
+{
+  "name": "boxly-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Funciones serverless de Vercel para Boxly (encargados de sucursal + webhook de PayPal).",
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}

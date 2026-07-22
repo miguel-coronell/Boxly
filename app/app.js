@@ -10,8 +10,17 @@ const NEW_USER_FLAG = "boxly_new_user";
 const TOUR_DONE_FLAG = "boxly_onboarding_done";
 
 /* ---------------------------- Autenticación (guard) ----------------------------
-   Si no hay sesión iniciada, se redirige a login.html. Cuando integres Firebase,
-   reemplazá esta verificación por el listener real: firebase.auth().onAuthStateChanged(). */
+   Si no hay sesión iniciada, se redirige a login.html.
+
+   CURRENT_USER se sigue llenando de forma SÍNCRONA desde localStorage (como antes)
+   para que el resto del archivo -que lo usa en decenas de funciones- no tenga que
+   volverse asíncrono de punta a punta. Lo que cambia acá es que, con Firebase
+   configurado, ADEMÁS verificamos en paralelo que esa sesión sea real contra
+   firebase.auth().onAuthStateChanged(): si Firebase dice que no hay usuario logueado
+   (por ejemplo, alguien pisó el localStorage a mano, o el token expiró), se cierra
+   la sesión local y se redirige a login.html, aunque el localStorage "dijera" que
+   había sesión. Esto tapa el hueco de seguridad de confiar ciegamente en localStorage,
+   sin tener que reescribir el resto de la app en esta etapa. */
 function getAuthUser() {
   try {
     const raw = localStorage.getItem(AUTH_KEY);
@@ -21,18 +30,190 @@ function getAuthUser() {
   }
 }
 
-const CURRENT_USER = getAuthUser();
+let CURRENT_USER = getAuthUser();
 if (!CURRENT_USER) {
   window.location.replace("login.html");
 }
+
+if (isFirebaseReady()) {
+  initFirebase().onAuthStateChanged((firebaseUser) => {
+    if (!firebaseUser) {
+      // Firebase no tiene sesión real: el localStorage no vale, se cierra todo.
+      localStorage.removeItem(AUTH_KEY);
+      window.location.replace("login.html");
+      return;
+    }
+    repararDocumentosDeCuentaVieja(firebaseUser);
+  });
+}
+
+/* ---------------------------- Paso 6F: auto-reparación ----------------------------
+   Cuentas creadas ANTES del Paso 6A tienen usuario real en Firebase Auth pero NUNCA
+   se les creó users/{uid} ni negocios/{uid} (ese código no existía todavía). Sin este
+   arreglo, iniciarSincronizacionFirestore() de más abajo fallaría silenciosamente:
+   NEGOCIO_ID terminaría valiendo el propio uid igual (por el "|| CURRENT_USER.uid"),
+   pero negocios/{uid} no existiría, así que todos los onSnapshot no traerían nada.
+   Se corre una sola vez por sesión, antes de iniciarSincronizacionFirestore(). */
+function repararDocumentosDeCuentaVieja(firebaseUser) {
+  const db = getFirestoreDb();
+  const userRef = db.collection("users").doc(firebaseUser.uid);
+  userRef.get().then((userDoc) => {
+    if (userDoc.exists) return; // cuenta ya migrada, no hace falta nada
+    console.warn("Cuenta vieja sin users/{uid}: creando documentos por defecto.", firebaseUser.uid);
+    const batch = db.batch();
+    batch.set(userRef, {
+      nombre: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split("@")[0] : "Administrador"),
+      email: firebaseUser.email || "",
+      negocioId: firebaseUser.uid,
+      rol: "Administrador",
+      sucursalId: null
+    });
+    batch.set(db.collection("negocios").doc(firebaseUser.uid), {
+      nombreNegocio: "Mi negocio",
+      moneda: "ARS",
+      stockMinimoDefault: 10,
+      notificaciones: true,
+      trialStart: firebase.firestore.FieldValue.serverTimestamp(),
+      plan: null,
+      paidUntil: null,
+      tier: "basico"
+    }, { merge: true }); // merge: si negocios/{uid} ya existía por algún motivo, no lo pisa
+    return batch.commit();
+  }).catch((err) => console.error("No se pudo verificar/reparar los documentos de la cuenta.", err));
+}
+
+/* ---------------------------- Datos del negocio en Firestore (Pasos 6B/6C/6D) ----------------------------
+   NEGOCIO_ID es el id del documento en negocios/{negocioId}. Para el Administrador
+   coincide con su propio uid (así se crea en el registro, ver login.js), pero para un
+   encargado invitado es distinto de su uid -> hay que leerlo primero de su propio
+   documento users/{uid}. Recién con NEGOCIO_ID confirmado nos suscribimos con onSnapshot
+   a cada subcolección, que mantiene el STORE correspondiente sincronizado en tiempo real
+   y dispara los mismos render*() que ya existían. Todo esto no corre en modo demo
+   (sin Firebase configurado): ahí STORE sigue viniendo de localStorage como siempre. */
+let NEGOCIO_ID = null;
+let unsubscribeProductos = null;
+let unsubscribeMovimientos = null;
+let unsubscribeSucursales = null;
+
+function iniciarSincronizacionFirestore() {
+  if (!isFirebaseReady() || !CURRENT_USER) return;
+  const db = getFirestoreDb();
+  db.collection("users").doc(CURRENT_USER.uid).get()
+    .then((userDoc) => {
+      NEGOCIO_ID = (userDoc.exists && userDoc.data().negocioId) || CURRENT_USER.uid;
+      suscribirProductosFirestore(db);
+      suscribirMovimientosFirestore(db);
+      suscribirSucursalesFirestore(db);
+      suscribirNegocioFirestore(db);
+    })
+    .catch((err) => console.error("No se pudo leer el negocioId del usuario.", err));
+}
+
+function suscribirProductosFirestore(db) {
+  if (unsubscribeProductos) unsubscribeProductos();
+  unsubscribeProductos = db.collection("negocios").doc(NEGOCIO_ID).collection("productos")
+    .onSnapshot(
+      (snapshot) => {
+        STORE.products = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        renderProductos();
+        renderDashboard();
+      },
+      (err) => {
+        console.error("Error escuchando productos en Firestore.", err);
+        showToast("No se pudieron sincronizar los productos. Revisá tu conexión.", "error");
+      }
+    );
+}
+
+/* Paso 6C: movimientos en tiempo real. El stock de cada producto se actualiza
+   con runTransaction() dentro de registerMovement(), no acá — este listener solo
+   refleja en pantalla lo que ya quedó confirmado en Firestore. */
+function suscribirMovimientosFirestore(db) {
+  if (unsubscribeMovimientos) unsubscribeMovimientos();
+  unsubscribeMovimientos = db.collection("negocios").doc(NEGOCIO_ID).collection("movimientos")
+    .onSnapshot(
+      (snapshot) => {
+        STORE.movements = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        renderEntradas();
+        renderSalidas();
+        renderDashboard();
+      },
+      (err) => {
+        console.error("Error escuchando movimientos en Firestore.", err);
+        showToast("No se pudieron sincronizar los movimientos. Revisá tu conexión.", "error");
+      }
+    );
+}
+
+/* Paso 6D (sucursales): mismo patrón que productos/movimientos. */
+function suscribirSucursalesFirestore(db) {
+  if (unsubscribeSucursales) unsubscribeSucursales();
+  unsubscribeSucursales = db.collection("negocios").doc(NEGOCIO_ID).collection("sucursales")
+    .onSnapshot(
+      (snapshot) => {
+        STORE.sucursales = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        renderSucursales();
+        renderUsuarios();
+      },
+      (err) => {
+        console.error("Error escuchando sucursales en Firestore.", err);
+        showToast("No se pudieron sincronizar las sucursales. Revisá tu conexión.", "error");
+      }
+    );
+}
+
+/* Paso 6D (configuración) + Paso 6E (plan/trial): un solo listener sobre el documento
+   negocios/{NEGOCIO_ID}, porque ahí viven tanto los datos de "Configuración" como
+   trialStart/plan/paidUntil/tier que ya crea login.js al registrarse. */
+let NEGOCIO_TRIAL = { trialStart: null, plan: null, paidUntil: null, tier: "basico" };
+let unsubscribeNegocio = null;
+
+function suscribirNegocioFirestore(db) {
+  if (unsubscribeNegocio) unsubscribeNegocio();
+  unsubscribeNegocio = db.collection("negocios").doc(NEGOCIO_ID)
+    .onSnapshot(
+      (doc) => {
+        if (!doc.exists) return;
+        const data = doc.data();
+        STORE.settings = {
+          nombreNegocio: data.nombreNegocio || "Mi negocio",
+          moneda: data.moneda || "ARS",
+          stockMinimoDefault: data.stockMinimoDefault ?? 10,
+          notificaciones: data.notificaciones !== false,
+          logoBase64: data.logoBase64 || null,
+          direccion: data.direccion || "",
+          telefono: data.telefono || "",
+          email: data.email || "",
+          fiscal: data.fiscal || ""
+        };
+        NEGOCIO_TRIAL = {
+          trialStart: data.trialStart && data.trialStart.toDate ? data.trialStart.toDate().toISOString() : (data.trialStart || new Date().toISOString()),
+          plan: data.plan || null,
+          paidUntil: data.paidUntil && data.paidUntil.toDate ? data.paidUntil.toDate().toISOString() : (data.paidUntil || null),
+          tier: data.tier || "basico"
+        };
+        renderDashboard();
+        renderTrialBanner();
+        if (document.getElementById("cfgNombreNegocio")) renderConfiguracion();
+        if (typeof renderMiPlan === "function" && document.getElementById("section-mi-plan")) renderMiPlan();
+      },
+      (err) => console.error("Error escuchando el documento del negocio en Firestore.", err)
+    );
+}
+
+iniciarSincronizacionFirestore();
+
+
+
+const CREATOR_EMAIL = "miguelcoronell94@gmail.com";
+function isCreatorAccount() {
+  return !!(CURRENT_USER && CURRENT_USER.email && CURRENT_USER.email.toLowerCase() === CREATOR_EMAIL);
+}
 const CATEGORY_COLORS = ["#0E6B4F", "#22C55E", "#15803D", "#D7F205", "#B98A5E", "#94A3B8"];
 
-/* ---------------------------- Prueba gratis (7 días) + Paywall ----------------------------
-   Todo corre en localStorage por ahora (igual que el resto de la demo). Cuando conectes
-   el backend (Vercel + Firebase), reemplazá este control por uno en el servidor: guardá
-   la fecha de inicio y el estado del pago en Firestore, y confirmá el pago con un webhook
-   de PayPal antes de llamar a markPlanPaid(). Así nadie puede "resetear" la prueba borrando
-   el localStorage del navegador. */
+
+/* ---------------------------- Prueba gratis (7 días) + Paywall ----------------------------*/
+  
 const TRIAL_KEY = "boxly_trial_v1";
 const TRIAL_DAYS = 7;
 const PLAN_PRICES = {
@@ -60,6 +241,16 @@ function ensureTrial(uid) {
   return store[uid];
 }
 function getTrialStatus(uid) {
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    const now = new Date();
+    const start = NEGOCIO_TRIAL.trialStart ? new Date(NEGOCIO_TRIAL.trialStart) : now;
+    const daysUsed = Math.floor((now - start) / 86400000);
+    const daysLeft = Math.max(TRIAL_DAYS - daysUsed, 0);
+    const isPaid = !!(NEGOCIO_TRIAL.paidUntil && new Date(NEGOCIO_TRIAL.paidUntil) > now);
+    const expired = !isPaid && daysUsed >= TRIAL_DAYS;
+    return { daysUsed, daysLeft, isPaid, expired, plan: NEGOCIO_TRIAL.plan };
+  }
+  // ---- Modo demo (sin Firebase) ----
   const store = getTrialStore();
   const data = store[uid] || ensureTrial(uid);
   const now = new Date();
@@ -70,20 +261,45 @@ function getTrialStatus(uid) {
   const expired = !isPaid && daysUsed >= TRIAL_DAYS;
   return { daysUsed, daysLeft, isPaid, expired, plan: data.plan };
 }
+
+/* IMPORTANTE — leído antes de tocar esta función:
+   Con Firebase configurado, esta función YA NO escribe el plan en Firestore desde
+   el navegador. Es a propósito: dejar que el cliente se auto-marque "pagado" es
+   inseguro (cualquiera podría abrir la consola y llamar markPlanPaid() para
+   desbloquearse gratis). En producción real, el único que debe escribir
+   plan/paidUntil/tier en negocios/{negocioId} es el webhook de PayPal
+   (api/paypal-webhook.js, con Firebase Admin SDK, verificando el pago del lado
+   del servidor) — ese archivo no está entre los que me pasaste, así que no lo
+   inventé. Avisame si querés que lo armemos.
+   Mientras tanto, en modo Firebase esta función solo muestra un aviso; el cambio
+   de plan real no se refleja hasta que ese webhook exista (o hasta que edites el
+   documento a mano en la consola de Firestore para probar). */
 function markPlanPaid(uid, planKey, tier) {
-  const store = getTrialStore();
   const plan = PLAN_PRICES[planKey];
   const paidUntil = new Date(Date.now() + plan.days * 86400000).toISOString();
-  // "tier" es el plan de límites (basico/pro/premium) del Requerimiento 1-2.
-  // Si no se pasa (ej: paywall viejo de duración), se mantiene el tier que ya tenía o "pro" por defecto.
-  const resolvedTier = tier || (store[uid] && store[uid].tier) || "pro";
+  const resolvedTier = tier || NEGOCIO_TRIAL.tier || "pro";
+
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    console.warn("markPlanPaid(): en modo Firebase esto no escribe el plan; falta el webhook de PayPal (ver comentario arriba de esta función).");
+    showToast("Pago recibido por PayPal. Tu plan se actualiza en cuanto se confirme del lado del servidor.", "success");
+    return;
+  }
+
+  // ---- Modo demo (sin Firebase) ----
+  const store = getTrialStore();
   store[uid] = { ...(store[uid] || {}), plan: planKey, paidUntil, tier: resolvedTier };
   saveTrialStore(store);
+  document.body.classList.remove("trial-expired-lock");
+  sidebarLinks.forEach((link) => (link.disabled = false));
 }
 
 function renderTrialBanner() {
   const banner = document.getElementById("trialBanner");
   if (!banner || !CURRENT_USER) return;
+  if (isCreatorAccount()) {
+    banner.classList.add("hidden");
+    return;
+  }
   const status = getTrialStatus(CURRENT_USER.uid);
   if (status.isPaid || status.expired) {
     banner.classList.add("hidden");
@@ -96,42 +312,30 @@ function renderTrialBanner() {
       : `Prueba gratis: te quedan ${status.daysLeft} día${status.daysLeft === 1 ? "" : "s"}.`;
 }
 
-function openPaywall(forced) {
-  const backdrop = document.getElementById("paywallBackdrop");
-  if (!backdrop) return;
-  backdrop.classList.toggle("is-forced", !!forced);
-  backdrop.classList.add("is-open");
-  document.body.classList.add("paywall-locked");
-}
-function closePaywall() {
-  const backdrop = document.getElementById("paywallBackdrop");
-  if (!backdrop || backdrop.classList.contains("is-forced")) return;
-  backdrop.classList.remove("is-open");
-  document.body.classList.remove("paywall-locked");
-}
 
-function handlePayPalClick(planKey) {
-  // ---- Modo demo: simula la aprobación del pago, sin backend real ----
-  // Cuando conectes Vercel + Firebase, cambiá esto por los botones reales
-  // "Smart Buttons" del SDK de PayPal, y solo llamá a markPlanPaid() después
-  // de que tu servidor confirme el pago (webhook de PayPal), nunca antes.
-  showToast("Modo demo: procesando pago con PayPal...", "success");
-  setTimeout(() => {
-    markPlanPaid(CURRENT_USER.uid, planKey);
-    showToast("¡Pago aprobado! Tu plan ya está activo.", "success");
-    const backdrop = document.getElementById("paywallBackdrop");
-    backdrop.classList.remove("is-forced", "is-open");
-    document.body.classList.remove("paywall-locked");
-    renderTrialBanner();
-  }, 1200);
-}
 
 function initTrialGuard() {
   if (!CURRENT_USER) return;
+  if (isCreatorAccount()) {
+    document.getElementById("trialBanner").classList.add("hidden");
+    return; // la cuenta creadora nunca se bloquea ni ve el banner de prueba
+  }
   ensureTrial(CURRENT_USER.uid);
   const status = getTrialStatus(CURRENT_USER.uid);
   renderTrialBanner();
-  if (status.expired) openPaywall(true);
+  if (status.expired) lockToMiPlan();
+}
+
+/* Bloquea la navegación a cualquier sección que no sea "Mi Plan" o "Ayuda y soporte"
+   mientras la cuenta no tenga un plan pago activo. Sin modal simulado: el usuario
+   ve directamente la pantalla real de planes con los botones de PayPal. */
+function lockToMiPlan() {
+  document.body.classList.add("trial-expired-lock");
+  sidebarLinks.forEach((link) => {
+    const target = link.getAttribute("data-target");
+    if (target !== "mi-plan" && target !== "ayuda") link.disabled = true;
+  });
+  switchSection("mi-plan");
 }
 
 /* =========================================================================
@@ -182,19 +386,25 @@ const PAYPAL_PLAN_IDS = {
 };
 
 function getTrialTier(uid) {
+  if (isFirebaseReady() && NEGOCIO_ID) return NEGOCIO_TRIAL.tier || "basico";
   const store = getTrialStore();
   return (store[uid] && store[uid].tier) || "basico";
 }
 
 /* Límites del plan del usuario logueado. Si todavía está en período de prueba,
    usamos los límites del plan "pro" para que pueda probar sucursales múltiples. */
+
+
 function getPlanLimits() {
   if (!CURRENT_USER) return PLAN_TIERS.basico;
+  if (isCreatorAccount()) return PLAN_TIERS.premium; // ver punto 3.4 más abajo
   const status = getTrialStatus(CURRENT_USER.uid);
-  if (!status.isPaid && !status.expired) return PLAN_TIERS.pro; // cortesía durante la prueba
+  if (!status.isPaid && !status.expired) return PLAN_TIERS.basico; // límites reales de la prueba
   const tier = getTrialTier(CURRENT_USER.uid);
   return PLAN_TIERS[tier] || PLAN_TIERS.basico;
 }
+
+
 
 function getPlanUsage() {
   return {
@@ -339,6 +549,35 @@ document.querySelectorAll("[data-plan-demo]").forEach((btn) => {
   });
 });
 
+/* Vista especial de "Mi Plan" para la cuenta creadora: todo ilimitado,
+   sin barras de uso reales y sin la grilla de planes para contratar. */
+function renderMiPlanCreador() {
+  document.getElementById("miPlanBadge").innerHTML = `<i data-lucide="crown" class="h-3.5 w-3.5"></i> Plan Creador - Todo Ilimitado`;
+  document.getElementById("miPlanNombre").textContent = "Plan Creador";
+  document.getElementById("miPlanMeta").textContent = "Acceso total, sin límites ni vencimiento.";
+  document.getElementById("miPlanPrecio").innerHTML = `<span>—</span>`;
+
+  const bars = [
+    { barId: "miPlanBarSucursales", labelId: "miPlanUsoSucursales" },
+    { barId: "miPlanBarProductos", labelId: "miPlanUsoProductos" },
+    { barId: "miPlanBarDocumentos", labelId: "miPlanUsoDocumentos" }
+  ];
+  bars.forEach((b) => {
+    const bar = document.getElementById(b.barId);
+    bar.style.width = "100%";
+    bar.classList.remove("bar-fill-plan-warn", "bar-fill-plan-danger");
+    document.getElementById(b.labelId).textContent = "∞ / ∞";
+  });
+
+  const upgradePanel = document.getElementById("miPlanUpgradePanel");
+  if (upgradePanel) upgradePanel.classList.add("hidden");
+
+  refreshIcons();
+}
+
+
+
+
 /* Pinta la sección "Mi Plan": plan actual, próximo pago y las 3 barras de progreso
    de uso (sucursales / productos / documentos). */
 function renderMiPlan() {
@@ -437,6 +676,34 @@ const PDF_ICONS = {
 
 /* ---------------------------- Datos de demo ---------------------------- */
 function seedData() {
+
+/* Estructura vacía para cuentas realmente nuevas: sin productos ni movimientos
+   de ejemplo, pero con la sucursal por defecto (necesaria para que los
+   formularios de Entradas/Salidas tengan al menos una opción). */
+function seedEmptyData() {
+  return {
+    products: [],
+    movements: [],
+    users: [],
+    sucursales: [{ id: "s1", nombre: "Casa Central", direccion: "" }],
+    settings: {
+      nombreNegocio: "Mi negocio",
+      moneda: "ARS",
+      stockMinimoDefault: 10,
+      notificaciones: true,
+      logoBase64: null,
+      direccion: "",
+      telefono: "",
+      email: "",
+      fiscal: ""
+    },
+    encargados: []
+  };
+}
+
+
+
+
   const today = new Date();
   const daysAgo = (n) => {
     const d = new Date(today);
@@ -565,7 +832,8 @@ function loadStore() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      const seeded = seedData();
+      const isNewUser = localStorage.getItem(NEW_USER_FLAG) === "true";
+      const seeded = isNewUser ? seedEmptyData() : seedData();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
       return seeded;
     }
@@ -807,7 +1075,18 @@ const SECTION_META = {
   ayuda: { title: "Ayuda y soporte", subtitle: "Estamos para ayudarte con Boxly." }
 };
 
+
+
 function switchSection(target, opts = {}) {
+  if (document.body.classList.contains("trial-expired-lock") && target !== "mi-plan" && target !== "ayuda") {
+    target = "mi-plan";
+  }
+  if ((target === "usuarios" || target === "sucursales" || target === "mi-plan") && !isCurrentUserAdmin()) {
+    target = "dashboard";
+  }
+ 
+
+
   if ((target === "usuarios" || target === "sucursales" || target === "mi-plan") && !isCurrentUserAdmin()) {
     target = "dashboard";
   }
@@ -891,7 +1170,10 @@ document.getElementById("logoutBtn").addEventListener("click", () => {
 document.getElementById("notifBtn").addEventListener("click", () => switchSection("alertas"));
 
 /* Quick add product from topbar */
-document.getElementById("addProductQuick").addEventListener("click", () => openProductModal());
+const addProductQuickBtn = document.getElementById("addProductQuick");
+if (addProductQuickBtn) {
+  addProductQuickBtn.addEventListener("click", () => openProductModal());
+}
 
 /* Global search -> jumps to Productos and filters */
 document.getElementById("globalSearch").addEventListener("input", (e) => {
@@ -1244,6 +1526,18 @@ function renderProductos() {
         `¿Seguro que querés eliminar <strong>${product.nombre}</strong>? Esta acción no se puede deshacer.`,
         "Eliminar",
         () => {
+          if (isFirebaseReady() && NEGOCIO_ID) {
+            getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).collection("productos").doc(product.id).delete()
+              .then(() => showToast("Producto eliminado.", "success"))
+              .catch((err) => {
+                console.error("No se pudo eliminar el producto en Firestore.", err);
+                showToast("No se pudo eliminar el producto. Probá de nuevo.", "error");
+              });
+            // No hace falta renderProductos()/renderDashboard() acá: el onSnapshot
+            // de iniciarSincronizacionProductos() los llama solo apenas Firestore confirma el borrado.
+            return;
+          }
+          // ---- Modo demo (sin Firebase) ----
           STORE.products = STORE.products.filter((p) => p.id !== product.id);
           saveStore();
           renderProductos();
@@ -1325,6 +1619,29 @@ function openProductModal(existing, options = {}) {
           precio: parseFloat(body.querySelector("#pfPrecio").value) || 0
         };
 
+        if (isFirebaseReady() && NEGOCIO_ID) {
+          const coleccion = getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).collection("productos");
+          const promesa = isEdit
+            ? coleccion.doc(existing.id).update(payload)
+            : coleccion.add(payload);
+          promesa
+            .then((docRef) => {
+              showToast(isEdit ? "Producto actualizado." : "Producto creado.", "success");
+              closeModal();
+              // El onSnapshot de iniciarSincronizacionProductos() ya actualiza STORE.products
+              // y vuelve a llamar a renderProductos()/renderDashboard() solo.
+              if (typeof options.onSaved === "function") {
+                options.onSaved(isEdit ? { id: existing.id, ...payload } : { id: docRef.id, ...payload });
+              }
+            })
+            .catch((err) => {
+              console.error("No se pudo guardar el producto en Firestore.", err);
+              showToast("No se pudo guardar el producto. Probá de nuevo.", "error");
+            });
+          return;
+        }
+
+        // ---- Modo demo (sin Firebase) ----
         let savedProduct;
         if (isEdit) {
           Object.assign(existing, payload);
@@ -1444,6 +1761,44 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
     return;
   }
 
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    const db = getFirestoreDb();
+    const productRef = db.collection("negocios").doc(NEGOCIO_ID).collection("productos").doc(productId);
+    const movimientoRef = db.collection("negocios").doc(NEGOCIO_ID).collection("movimientos").doc();
+
+    db.runTransaction((transaction) => {
+      return transaction.get(productRef).then((productSnap) => {
+        if (!productSnap.exists) throw new Error("STOCK_PRODUCTO_INEXISTENTE");
+        const data = productSnap.data();
+        const stockActual = data.stock || 0;
+        if (tipo === "salida" && cantidad > stockActual) {
+          throw new Error(`STOCK_INSUFICIENTE:No hay suficiente stock de ${data.nombre} (disponible: ${stockActual}).`);
+        }
+        const nuevoStock = stockActual + (tipo === "entrada" ? cantidad : -cantidad);
+        const montoTotal = cantidad * (data.precio || 0);
+        transaction.update(productRef, { stock: nuevoStock });
+        transaction.set(movimientoRef, { tipo, productId, cantidad, nota, sucursalId, montoTotal, fecha: new Date().toISOString() });
+      });
+    })
+      .then(() => {
+        document.getElementById(formId).reset();
+        showToast(tipo === "entrada" ? "Entrada registrada." : "Salida registrada.", "success");
+        // Los onSnapshot de productos y movimientos ya refrescan entradas/salidas/dashboard solos.
+      })
+      .catch((err) => {
+        console.error("No se pudo registrar el movimiento en Firestore.", err);
+        if (err.message && err.message.startsWith("STOCK_INSUFICIENTE:")) {
+          showToast(err.message.replace("STOCK_INSUFICIENTE:", ""), "error");
+        } else if (err.message === "STOCK_PRODUCTO_INEXISTENTE") {
+          showToast("Ese producto ya no existe.", "error");
+        } else {
+          showToast("No se pudo registrar el movimiento. Probá de nuevo.", "error");
+        }
+      });
+    return;
+  }
+
+  // ---- Modo demo (sin Firebase) ----
   product.stock += tipo === "entrada" ? cantidad : -cantidad;
   // montoTotal = cantidad * precio unitario del producto en el momento del movimiento.
   // Es la base que usa el dashboard (Requerimiento 3) para sumar "Compras totales" y
@@ -2470,6 +2825,19 @@ function renderSucursales() {
           : `¿Seguro que querés eliminar <strong>${s.nombre}</strong>?`,
         "Eliminar",
         () => {
+          if (isFirebaseReady() && NEGOCIO_ID) {
+            getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).collection("sucursales").doc(s.id).delete()
+              .then(() => showToast("Sucursal eliminada.", "success"))
+              .catch((err) => {
+                console.error("No se pudo eliminar la sucursal en Firestore.", err);
+                showToast("No se pudo eliminar la sucursal. Probá de nuevo.", "error");
+              });
+            // El onSnapshot de suscribirSucursalesFirestore() refresca la tabla solo.
+            // Nota: los usuarios/{uid} con esta sucursalId no se limpian automáticamente
+            // acá todavía (eso queda para cuando migremos STORE.users, Paso 6D-usuarios).
+            return;
+          }
+          // ---- Modo demo (sin Firebase) ----
           STORE.sucursales = STORE.sucursales.filter((x) => x.id !== s.id);
           STORE.users.forEach((u) => { if (u.sucursalId === s.id) u.sucursalId = null; });
           saveStore();
@@ -2513,6 +2881,26 @@ function openSucursalForm(sucursal) {
         if (limitExceeded) return;
         const nombre = body.querySelector("#sfNombre").value.trim();
         const direccion = body.querySelector("#sfDireccion").value.trim();
+
+        if (isFirebaseReady() && NEGOCIO_ID) {
+          const coleccion = getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).collection("sucursales");
+          const promesa = isEdit
+            ? coleccion.doc(sucursal.id).update({ nombre, direccion })
+            : coleccion.add({ nombre, direccion });
+          promesa
+            .then(() => {
+              closeModal();
+              showToast(isEdit ? "Sucursal actualizada." : "Sucursal creada.", "success");
+              // El onSnapshot de suscribirSucursalesFirestore() refresca solo.
+            })
+            .catch((err) => {
+              console.error("No se pudo guardar la sucursal en Firestore.", err);
+              showToast("No se pudo guardar la sucursal. Probá de nuevo.", "error");
+            });
+          return;
+        }
+
+        // ---- Modo demo (sin Firebase) ----
         if (isEdit) {
           sucursal.nombre = nombre;
           sucursal.direccion = direccion;
@@ -2729,16 +3117,30 @@ function renderLogoPreview() {
    datos de la empresa para el PDF, con un solo botón de guardado. */
 document.getElementById("settingsForm").addEventListener("submit", (e) => {
   e.preventDefault();
-  STORE.settings.nombreNegocio = document.getElementById("cfgNombreNegocio").value.trim() || "Mi negocio";
-  STORE.settings.moneda = document.getElementById("cfgMoneda").value;
-  STORE.settings.stockMinimoDefault = parseInt(document.getElementById("cfgStockMinimo").value, 10) || 0;
-  STORE.settings.notificaciones = document.getElementById("cfgNotificaciones").checked;
+  const nuevo = {
+    nombreNegocio: document.getElementById("cfgNombreNegocio").value.trim() || "Mi negocio",
+    moneda: document.getElementById("cfgMoneda").value,
+    stockMinimoDefault: parseInt(document.getElementById("cfgStockMinimo").value, 10) || 0,
+    notificaciones: document.getElementById("cfgNotificaciones").checked,
+    direccion: document.getElementById("cfgDireccion").value.trim(),
+    telefono: document.getElementById("cfgTelefono").value.trim(),
+    email: document.getElementById("cfgEmail").value.trim(),
+    fiscal: document.getElementById("cfgFiscal").value.trim()
+  };
 
-  STORE.settings.direccion = document.getElementById("cfgDireccion").value.trim();
-  STORE.settings.telefono = document.getElementById("cfgTelefono").value.trim();
-  STORE.settings.email = document.getElementById("cfgEmail").value.trim();
-  STORE.settings.fiscal = document.getElementById("cfgFiscal").value.trim();
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).update(nuevo)
+      .then(() => showToast("Configuración guardada.", "success"))
+      .catch((err) => {
+        console.error("No se pudo guardar la configuración en Firestore.", err);
+        showToast("No se pudo guardar la configuración. Probá de nuevo.", "error");
+      });
+    // El onSnapshot de suscribirNegocioFirestore() refresca STORE.settings y la pantalla solo.
+    return;
+  }
 
+  // ---- Modo demo (sin Firebase) ----
+  Object.assign(STORE.settings, nuevo);
   saveStore();
   showToast("Configuración guardada.", "success");
   renderDashboard();
@@ -2752,18 +3154,35 @@ document.getElementById("cfgLogoInput").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
 
-  if (file.size > 1.5 * 1024 * 1024) {
-    showToast("La imagen es muy pesada. Usá un logo de menos de 1.5 MB.", "error");
+  // OJO: Firestore tiene un límite de 1 MiB por documento (todos los campos juntos).
+  // Un logo en base64 pesa ~33% más que el archivo original, así que 1.5 MB de imagen
+  // ya se come casi todo ese límite. Si tenés pensado usar logos con Firebase activado,
+  // lo correcto es subir el archivo a Firebase Storage y guardar acá solo la URL, no el
+  // base64 entero. Por ahora bajo el límite aceptado a 300 KB para no romper el documento;
+  // avisame si querés que armemos la versión con Storage.
+  const maxBytes = isFirebaseReady() ? 300 * 1024 : 1.5 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    showToast(`La imagen es muy pesada. Usá un logo de menos de ${Math.round(maxBytes / 1024)} KB.`, "error");
     e.target.value = "";
     return;
   }
 
   const reader = new FileReader();
   reader.onload = () => {
-    STORE.settings.logoBase64 = reader.result; // dataURL base64, listo para usar en el PDF
-    saveStore();
-    renderLogoPreview();
-    showToast("Logo actualizado.", "success");
+    const logoBase64 = reader.result;
+    if (isFirebaseReady() && NEGOCIO_ID) {
+      getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).update({ logoBase64 })
+        .then(() => showToast("Logo actualizado.", "success"))
+        .catch((err) => {
+          console.error("No se pudo guardar el logo en Firestore.", err);
+          showToast("No se pudo guardar el logo. Probá con una imagen más chica.", "error");
+        });
+    } else {
+      STORE.settings.logoBase64 = logoBase64;
+      saveStore();
+      renderLogoPreview();
+      showToast("Logo actualizado.", "success");
+    }
   };
   reader.onerror = () => showToast("No se pudo leer la imagen.", "error");
   reader.readAsDataURL(file);
@@ -2771,6 +3190,15 @@ document.getElementById("cfgLogoInput").addEventListener("change", (e) => {
 });
 
 document.getElementById("cfgLogoRemove").addEventListener("click", () => {
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    getFirestoreDb().collection("negocios").doc(NEGOCIO_ID).update({ logoBase64: null })
+      .then(() => showToast("Logo quitado.", "success"))
+      .catch((err) => {
+        console.error("No se pudo quitar el logo en Firestore.", err);
+        showToast("No se pudo quitar el logo. Probá de nuevo.", "error");
+      });
+    return;
+  }
   STORE.settings.logoBase64 = null;
   saveStore();
   renderLogoPreview();
@@ -2809,17 +3237,10 @@ function initReveal() {
 const TOUR_STEPS = [
   {
     icon: "layout-dashboard",
-    title: "¡Bienvenido a Boxly!",
-    desc: "Este es tu Dashboard: de un vistazo vas a ver el stock total, el valor de tu inventario y las alertas activas.",
+    title: "Dashboard",
+    desc: "Acá tenés el resumen de tu negocio: stock total, valor de inventario, compras, ventas y alertas activas, todo de un vistazo.",
     section: "dashboard",
     target: ".stat-card:first-child"
-  },
-  {
-    icon: "pie-chart",
-    title: "Inventario por categoría",
-    desc: "Mirá cómo se reparte tu stock entre categorías para detectar rápido dónde tenés más volumen.",
-    section: "dashboard",
-    target: "#dashCategoryPanel"
   },
   {
     icon: "box",
@@ -2829,55 +3250,86 @@ const TOUR_STEPS = [
     target: "#openAddProduct"
   },
   {
-    icon: "scan-line",
-    title: "Entradas y salidas",
-    desc: "Registrá movimientos de stock escaneando con una pistola lectora o la cámara de tu celular. Rápido y sin errores.",
+    icon: "arrow-down-to-line",
+    title: "Entradas",
+    desc: "Registrá el ingreso de mercadería escaneando con una pistola lectora o la cámara de tu celular. Rápido y sin errores.",
     section: "entradas",
     target: "#entradaScan"
   },
   {
+    icon: "arrow-up-from-line",
+    title: "Salidas",
+    desc: "Registrá ventas y salidas de stock del mismo modo: escaneando o buscando el producto por SKU.",
+    section: "salidas",
+    target: "#salidaScan"
+  },
+  {
     icon: "warehouse",
-    title: "Inventario en tiempo real",
+    title: "Inventario",
     desc: "Consultá el estado de cada producto — OK, bajo o crítico — y filtrá por lo que necesites revisar.",
     section: "inventario",
     target: "#inventarioStatusFilter"
   },
   {
-    icon: "file-down",
-    title: "Reportes en PDF",
-    desc: "Filtrá por fecha, tipo y categoría, elegí las columnas y descargá un PDF prolijo con tu logo y tus datos.",
+    icon: "bar-chart-2",
+    title: "Reportes",
+    desc: "Filtrá movimientos por fecha, sucursal, tipo y categoría, y descargá reportes en PDF o Excel con tu logo y firma digital para auditorías.",
     section: "reportes",
     target: "#repGenerarPdf"
   },
   {
-    icon: "file-spreadsheet",
-    title: "Reportes en Excel",
-    desc: "El mismo reporte, pero como planilla lista para trabajar: columnas separadas, encabezados en verde y tu logo.",
-    section: "reportes",
-    target: "#repGenerarExcel"
+    icon: "alert-triangle",
+    title: "Alertas",
+    desc: "Acá aparecen automáticamente los productos con stock bajo o crítico, para que nunca te quedes sin mercadería importante.",
+    section: "alertas",
+    target: "#section-alertas .panel"
   },
   {
-    icon: "pen-tool",
-    title: "Firma digital para auditorías",
-    desc: "Activá este interruptor para sumar firmas y un descargo de responsabilidad automático al PDF que descargues.",
-    section: "reportes",
-    target: "#panelFirmas .toggle-row"
+    icon: "users",
+    title: "Usuarios",
+    desc: "Invitá a tu equipo con distintos roles (Administrador, Editor, Visualizador) y asignales una sucursal específica.",
+    section: "usuarios",
+    target: "#openAddUser",
+    adminOnly: true
+  },
+  {
+    icon: "store",
+    title: "Sucursales",
+    desc: "Administrá tus sucursales y creá accesos de encargados limitados a ver y operar solo la sucursal que le asignes.",
+    section: "sucursales",
+    target: "#openAddSucursal",
+    adminOnly: true
+  },
+  {
+    icon: "gem",
+    title: "Mi Plan",
+    desc: "Consultá tu plan actual, tus límites de uso (sucursales, productos, documentos) y mejorá tu suscripción cuando lo necesites.",
+    section: "mi-plan",
+    target: "#miPlanBadge",
+    adminOnly: true
   },
   {
     icon: "settings",
-    title: "Configuración a tu medida",
+    title: "Configuración",
     desc: "Personalizá moneda, stock mínimo, logo y datos de contacto de tu negocio en un solo lugar.",
     section: "configuracion",
     target: "#cfgLogoBtn"
   },
   {
     icon: "life-buoy",
-    title: "Estamos para ayudarte",
-    desc: "Si te trabás con algo, en Ayuda y soporte encontrás preguntas frecuentes y nuestros canales de contacto.",
+    title: "Ayuda y soporte",
+    desc: "Si te trabás con algo, acá encontrás preguntas frecuentes y nuestros canales de contacto directo.",
     section: "ayuda",
     target: "#replayTourBtn"
   }
 ];
+
+/* Pasos visibles según el rol del usuario logueado: los admin-only (Usuarios,
+   Sucursales, Mi Plan) se saltean si quien ve el tour no es Administrador,
+   para no chocar con la redirección que ya hace switchSection(). */
+function getVisibleTourSteps() {
+  return TOUR_STEPS.filter((step) => !step.adminOnly || isCurrentUserAdmin());
+}
 
 let tourIndex = 0;
 
@@ -2928,7 +3380,8 @@ function positionTourAround(targetEl) {
 }
 
 function currentTourTarget() {
-  const step = TOUR_STEPS[tourIndex];
+  const steps = getVisibleTourSteps();
+  const step = steps[tourIndex];
   return step && step.target ? document.querySelector(step.target) : null;
 }
 
@@ -2938,24 +3391,30 @@ function handleTourReposition() {
 }
 
 function renderTourStep() {
-  const step = TOUR_STEPS[tourIndex];
+  const steps = getVisibleTourSteps();
+  const step = steps[tourIndex];
   document.getElementById("tourIcon").innerHTML = `<i data-lucide="${step.icon}"></i>`;
   document.getElementById("tourTitle").textContent = step.title;
   document.getElementById("tourDesc").textContent = step.desc;
 
+  // Contador y barra de progreso
+  const total = steps.length;
+  const current = tourIndex + 1;
+  document.getElementById("tourStepCounter").textContent = `Paso ${current} de ${total}`;
+  document.getElementById("tourProgressFill").style.width = `${(current / total) * 100}%`;
+
   const dots = document.getElementById("tourDots");
-  dots.innerHTML = TOUR_STEPS.map((_, i) => `<span class="tour-dot ${i === tourIndex ? "active" : ""}"></span>`).join("");
+  dots.innerHTML = steps.map((_, i) => `<span class="tour-dot ${i === tourIndex ? "active" : ""}"></span>`).join("");
 
   const prevBtn = document.getElementById("tourPrev");
   const nextBtn = document.getElementById("tourNext");
   prevBtn.style.visibility = tourIndex === 0 ? "hidden" : "visible";
-  nextBtn.innerHTML = tourIndex === TOUR_STEPS.length - 1
+  nextBtn.innerHTML = tourIndex === total - 1
     ? `¡Empezar! <i data-lucide="check" class="h-4 w-4"></i>`
     : `Siguiente <i data-lucide="arrow-right" class="h-4 w-4"></i>`;
 
   refreshIcons();
 
-  // Lleva a la sección real del paso para poder enfocar el campo correspondiente.
   if (step.section) switchSection(step.section, { keepScroll: true });
 
   const targetEl = step.target ? document.querySelector(step.target) : null;
@@ -2982,8 +3441,11 @@ function closeTour() {
   window.removeEventListener("scroll", handleTourReposition, true);
 }
 
+
+
 document.getElementById("tourNext").addEventListener("click", () => {
-  if (tourIndex === TOUR_STEPS.length - 1) {
+  const steps = getVisibleTourSteps();
+  if (tourIndex === steps.length - 1) {
     closeTour();
     return;
   }
@@ -2995,6 +3457,8 @@ document.getElementById("tourPrev").addEventListener("click", () => {
   tourIndex--;
   renderTourStep();
 });
+
+
 document.getElementById("tourSkip").addEventListener("click", closeTour);
 
 const replayBtn = document.getElementById("replayTourBtn");
@@ -3011,17 +3475,8 @@ function initOnboardingTour() {
 /* =========================================================================
    Init
    ========================================================================= */
-const paywallMensualBtn = document.getElementById("paywallMensualBtn");
-const paywallSemestralBtn = document.getElementById("paywallSemestralBtn");
-const paywallAnualBtn = document.getElementById("paywallAnualBtn");
-const paywallCloseBtn = document.getElementById("paywallCloseBtn");
 const trialUpgradeBtn = document.getElementById("trialUpgradeBtn");
-if (paywallMensualBtn) paywallMensualBtn.addEventListener("click", () => handlePayPalClick("mensual"));
-if (paywallSemestralBtn) paywallSemestralBtn.addEventListener("click", () => handlePayPalClick("semestral"));
-if (paywallAnualBtn) paywallAnualBtn.addEventListener("click", () => handlePayPalClick("anual"));
-if (paywallCloseBtn) paywallCloseBtn.addEventListener("click", closePaywall);
-if (trialUpgradeBtn) trialUpgradeBtn.addEventListener("click", () => openPaywall(false));
-
+if (trialUpgradeBtn) trialUpgradeBtn.addEventListener("click", () => switchSection("mi-plan"));
 document.addEventListener("DOMContentLoaded", () => {
   lucide.createIcons();
   initReveal();

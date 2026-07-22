@@ -14,7 +14,7 @@
  *   1) El Admin, logueado en el panel, llama a este endpoint con su ID token.
  *   2) Verificamos ese token y confirmamos que quien llama es Administrador.
  *   3) Creamos el usuario en Firebase Auth (email + password).
- *   4) Guardamos su perfil en Firestore: usuarios/{uid} con rol "encargado"
+ *   4) Guardamos su perfil en Firestore: users/{uid} con rol "encargado"
  *      y el id de la sucursal asignada.
  *   5) (Opcional pero recomendado) seteamos Custom Claims para que las
  *      Firestore Rules puedan usar request.auth.token.rol / sucursalId.
@@ -78,7 +78,7 @@ module.exports = async function handler(req, res) {
     }
 
     const callerUid = decoded.uid;
-    const callerDoc = await db.collection("usuarios").doc(callerUid).get();
+    const callerDoc = await db.collection("users").doc(callerUid).get();
     const callerData = callerDoc.exists ? callerDoc.data() : null;
 
     if (!callerData || !ADMIN_ROLES.includes(callerData.rol)) {
@@ -136,14 +136,14 @@ module.exports = async function handler(req, res) {
     }
 
     // ------------------------------------------------------------------
-    // 4) Guardar su perfil en Firestore: colección "usuarios"
+    // 4) Guardar su perfil en Firestore: colección "users"
     // ------------------------------------------------------------------
-    await db.collection("usuarios").doc(userRecord.uid).set({
+    await db.collection("users").doc(userRecord.uid).set({
       nombre: nombre.trim(),
       email: email.trim().toLowerCase(),
       rol: "encargado",
       sucursalId,
-      adminId: callerUid, // a qué cuenta/Administrador pertenece este encargado
+      negocioId: callerUid, // a qué negocio pertenece este encargado (el del Admin que lo crea)
       activo: true,
       creadoEn: admin.firestore.FieldValue.serverTimestamp()
     });
