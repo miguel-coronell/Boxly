@@ -795,7 +795,22 @@ function seedData() {
   return { products, movements, users, sucursales, settings, encargados };
 }
 
+/* URL de producción de las funciones serverless en Vercel. La app corre en
+   GitHub Pages (miguel-coronell.github.io), un dominio distinto al de Vercel,
+   así que las llamadas a /api/... necesitan la URL absoluta, no una ruta
+   relativa. Usar SIEMPRE el alias estable de producción (no una URL de
+   deployment puntual tipo app-xxxxx-proyecto.vercel.app, que cambia en cada push). */
+const API_BASE = "https://app-nine-dusky-55.vercel.app";
+
 /* ---------------------------- Persistencia ---------------------------- */
+/* FIX: LEGACY_DEMO_EMAILS tiene que estar declarado ANTES de llamar a
+   loadStore() (que internamente llama a migrateStore(), que usa esta
+   constante). Antes estaba declarada más abajo en el archivo, y como
+   const/let viven en "zona muerta temporal" hasta su propia línea, usarla
+   acá arriba tiraba ReferenceError y hacía que loadStore() cayera siempre
+   al catch, mostrando datos de demo vacíos en vez de los datos reales. */
+const LEGACY_DEMO_EMAILS = ["admin@boxlyapp.com", "lucia@boxlyapp.com", "diego@boxlyapp.com"];
+
 let STORE = loadStore();
 
 /* ---------------------------- Dueño de la cuenta (admin real) ----------------------------
@@ -891,8 +906,8 @@ function loadStore() {
 
 /* Asegura que datos guardados con versiones anteriores tengan los campos nuevos
    (codigoBarras en productos, datos de empresa/logo en settings, sucursales) sin
-   perder la información ya cargada por el usuario. */
-const LEGACY_DEMO_EMAILS = ["admin@boxlyapp.com", "lucia@boxlyapp.com", "diego@boxlyapp.com"];
+   perder la información ya cargada por el usuario. LEGACY_DEMO_EMAILS ahora está
+   declarada más arriba en el archivo (ver nota junto a "let STORE = loadStore();"). */
 
 function migrateStore(store) {
   store.products = (store.products || []).map((p) => ({ codigoBarras: "", ...p }));
@@ -3063,7 +3078,7 @@ function renderEncargados() {
 async function toggleEncargado(encargadoUid, disabled) {
   const idToken = await getIdTokenSafe();
   try {
-    const res = await fetch("/api/disable-encargado", {
+    const res = await fetch(`${API_BASE}/api/disable-encargado`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
       body: JSON.stringify({ uid: encargadoUid, disabled })
@@ -3143,7 +3158,7 @@ async function createEncargado({ nombre, email, password, sucursalId, telefono }
   renderEncargados();
 
   try {
-    const res = await fetch("/api/create-encargado", {
+    const res = await fetch(`${API_BASE}/api/create-encargado`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

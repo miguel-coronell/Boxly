@@ -5,5 +5,8 @@
   "description": "Funciones serverless de Vercel para Boxly (encargados de sucursal + webhook de PayPal).",
   "dependencies": {
     "firebase-admin": "^12.1.0"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
   }
 }

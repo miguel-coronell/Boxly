@@ -1,0 +1,659 @@
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ ls -la
+total 126
+drwxr-xr-x 1 pc 197121     0 Jul 22 03:56 ./
+drwxr-xr-x 1 pc 197121     0 Jul 25 03:54 ../
+-rw-r--r-- 1 pc 197121  1312 Jul 21 23:03 .env.local
+drwxr-xr-x 1 pc 197121     0 Jul 22 04:08 .git/
+-rw-r--r-- 1 pc 197121    16 Jul 21 23:03 .gitignore
+drwxr-xr-x 1 pc 197121     0 Jul 21 23:03 .vercel/
+drwxr-xr-x 1 pc 197121     0 Jul 26 22:01 api/
+drwxr-xr-x 1 pc 197121     0 Jul 26 17:10 app/
+drwxr-xr-x 1 pc 197121     0 Jul 20 21:43 doc/
+drwxr-xr-x 1 pc 197121     0 Jul 20 06:06 img/
+-rw-r--r-- 1 pc 197121 47664 Jul 20 22:17 index.html
+-rw-r--r-- 1 pc 197121   236 Jul 21 23:22 package.json
+-rw-r--r-- 1 pc 197121 15650 Jul 19 22:22 script.js
+-rw-r--r-- 1 pc 197121  8643 Jul 19 22:22 styles.css
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ ls -la api 2>/dev/null || echo "NO EXISTE la carpeta api"
+total 20
+drwxr-xr-x 1 pc 197121    0 Jul 26 22:01 ./
+drwxr-xr-x 1 pc 197121    0 Jul 22 03:56 ../
+-rw-r--r-- 1 pc 197121 8715 Jul 26 22:01 create-encargado.js
+-rw-r--r-- 1 pc 197121 3453 Jul 26 22:01 disable-encargado.js
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ cat package.json
+{
+  "name": "boxly-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Funciones serverless de Vercel para Boxly (encargados de sucursal + webhook de PayPal).",
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ git remote -v
+git status
+origin  https://github.com/miguel-coronell/Boxly.git (fetch)
+origin  https://github.com/miguel-coronell/Boxly.git (push)
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+        modified:   api/create-encargado.js
+        modified:   app/app.js
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        api/disable-encargado.js
+
+no changes added to commit (use "git add" and/or "git commit -a")
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npx vercel --version
+npx vercel whoami
+npx vercel link --yes
+npx vercel env ls production
+Vercel CLI 56.3.1
+56.3.1
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+miguelcoronell94-5827
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│                     Update available! v56.3.1 ≫ v57.0.0                      │
+│   Changelog: https://github.com/vercel/vercel/releases/tag/vercel%4057.0.0   │
+│                   Run `npm i -g vercel@latest` to update.                    │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+Loading teams…
+
+  Directory       ~\OneDrive\Documents\Boxly_App
+
+Searching for existing projects…
+
+  No framework detected. Default Project Settings:
+  Build Command: `npm run vercel-build` or `npm run build`
+  Development Command: None
+  Install Command: `yarn install`, `pnpm install`, `npm install`, or `bun install`
+  Output Directory: `public` if it exists, or `.`
+Error: Project names can be up to 100 characters long and must be lowercase. They can include letters, digits, and the following characters: '.', '_', '-'. However, they cannot contain the sequence '---'. (400)
+Learn More: https://vercel.com/docs/projects/overview#project-name
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+Error: Your codebase isn’t linked to a project on Vercel. Pass --project <name>, or run `vercel link` to begin.
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ cat .vercel/project.json
+cat: .vercel/project.json: No such file or directory
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ git add -A
+git commit -m "Fix encargados de sucursal, tour de bienvenida y sync de Firestore"
+git push origin main
+warning: in the working copy of 'api/create-encargado.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/app.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/disable-encargado.js', LF will be replaced by CRLF the next time Git touches it
+[main 47724c7] Fix encargados de sucursal, tour de bienvenida y sync de Firestore
+ 3 files changed, 332 insertions(+), 83 deletions(-)
+ create mode 100644 api/disable-encargado.js
+Enumerating objects: 12, done.
+Counting objects: 100% (12/12), done.
+Delta compression using up to 12 threads
+Compressing objects: 100% (7/7), done.
+Writing objects: 100% (7/7), 7.05 KiB | 1.01 MiB/s, done.
+Total 7 (delta 5), reused 0 (delta 0), pack-reused 0
+remote: Resolving deltas: 100% (5/5), completed with 4 local objects.
+To https://github.com/miguel-coronell/Boxly.git
+   b3fd469..47724c7  main -> main
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npx vercel env ls production
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+Error: Your codebase isn’t linked to a project on Vercel. Pass --project <name>, or run `vercel link` to begin.
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npx vercel link --yes --project app --scope team_dzm3gkoh9QG517ad200ddH8m
+npx vercel env ls production
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+
+  Directory       ~\OneDrive\Documents\Boxly_App
+
+Searching for existing projects…
+
+✓ Linked          miguelcoronell94-5827s-projects/app
+
+Retrieving project…
+> Downloading a fresh `VERCEL_OIDC_TOKEN` for miguelcoronell94-5827s-projects/app
+Downloading
+
+✓ Updated         .env.local file
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+Retrieving project…
+> Environment Variables found for miguelcoronell94-5827s-projects/app [380ms]
+
+ name                       value               environments        created
+ PAYPAL_WEBHOOK_ID          Encrypted           Production          6d ago
+ PAYPAL_API_BASE            Encrypted           Production          6d ago
+ PAYPAL_CLIENT_SECRET       Encrypted           Production          6d ago
+ PAYPAL_CLIENT_ID           Encrypted           Production          6d ago
+ FIREBASE_PRIVATE_KEY       Encrypted           Production          6d ago
+ FIREBASE_CLIENT_EMAIL      Encrypted           Production          6d ago
+ FIREBASE_PROJECT_ID        Encrypted           Production          6d ago
+
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npm install -g firebase-tools
+firebase login
+firebase projects:list
+
+bash: firebase: command not found
+bash: firebase: command not found
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npm install -g firebase-tools
+firebase login
+firebase projects:list
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+npm warn deprecated json-ptr@3.1.1: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 667 packages in 1m
+
+95 packages are looking for funding
+  run `npm fund` for details
+
+Error: Cannot run login in non-interactive mode. See login:ci to generate a token for use in non-interactive environments.
+
+Error: Failed to authenticate, have you run firebase login?
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase login
+
+Error: Cannot run login in non-interactive mode. See login:ci to generate a token for use in non-interactive environments.
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase login --no-localhost
+
+Error: Cannot run login in non-interactive mode. See login:ci to generate a token for use in non-interactive environments.
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ winpty firebase login
+winpty: error: cannot start 'firebase': Not found in PATH
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ winpty firebase.cmd login
+i  The Firebase CLI’s MCP server feature can optionally make use of Gemini in Fi
+rebase. Learn more about Gemini in Firebase and how it uses your data: https://f
+irebase.google.com/docs/gemini-in-firebase#how-gemini-in-firebase-uses-your-data
+√ Enable Gemini in Firebase features? No
+
+i  Firebase optionally collects CLI and Emulator Suite usage and error reporting
+ information to help improve our products. Data is collected in accordance with
+Google's privacy policy (https://policies.google.com/privacy) and is not used to
+ identify you.
+√ Allow Firebase to collect CLI and Emulator Suite usage and error reporting
+information? No
+
+Visit this URL on this device to log in:
+https://accounts.google.com/o/oauth2/auth?client_id=563584335869-fgrhgmd47bqneki
+j5i8b5pr03ho849e6.apps.googleusercontent.com&scope=email%20openid%20https%3A%2F%
+2Fwww.googleapis.com%2Fauth%2Fcloudplatformprojects.readonly%20https%3A%2F%2Fwww
+.googleapis.com%2Fauth%2Ffirebase%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcl
+oud-platform&response_type=code&state=1053095824&redirect_uri=http%3A%2F%2Flocal
+host%3A9005
+
+Waiting for authentication...
+
++  Success! Logged in as miguelcoronell94@gmail.com
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
+ne 76
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase projects:list
+firebase use boxly-io
+firebase firestore:rules:get > reglas-actuales.txt
+cat reglas-actuales.txt
+- Preparing the list of your Firebase projects
+√ Preparing the list of your Firebase projects
+┌────────────────────────────────┬────────────────────────────────┬────────────────┬──────────────────────┐
+│ Project Display Name           │ Project ID                     │ Project Number │ Resource Location ID │
+├────────────────────────────────┼────────────────────────────────┼────────────────┼──────────────────────┤
+│ Aula Virtual FCE               │ aula-virtual-uncuyo            │ 946708159923   │ [Not specified]      │
+├────────────────────────────────┼────────────────────────────────┼────────────────┼──────────────────────┤
+│ Boxly-io                       │ boxly-io                       │ 363119991513   │ [Not specified]      │
+├────────────────────────────────┼────────────────────────────────┼────────────────┼──────────────────────┤
+│ Formulario-contacto-Gestor-PRO │ formulario-contacto-gestor-pro │ 145726288952   │ [Not specified]      │
+├────────────────────────────────┼────────────────────────────────┼────────────────┼──────────────────────┤
+│ Gestor PRO                     │ gestor-pro-9ec3c               │ 823129830865   │ [Not specified]      │
+└────────────────────────────────┴────────────────────────────────┴────────────────┴──────────────────────┘
+
+4 project(s) total.
+
+Error: firebase use must be run from a Firebase project directory.
+
+Run firebase init to start a project directory in the current folder.
+Error: firestore:rules:get is not a Firebase command
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase init firestore
+
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  C:\Users\pc\OneDrive\Documents\Boxly_App
+
+? Are you ready to proceed? (Y/n) y
+√ Are you ready to proceed? Yes
+
+=== Project Setup
+
+First, let's associate this project directory with a Firebase project.
+You can create multiple project aliases by running firebase use --add,
+
+No default project found. Continuing without a project in non interactive mode.
+
+=== Firestore Setup
+
+Firestore Security Rules allow you to define how and when to allow
+requests. You can keep these rules in your project directory
+and publish them with firebase deploy.
+
+? What file should be used for Firestore Rules? (firestore.rules)
+√ What file should be used for Firestore Rules? firestore.rules
+
+Firestore indexes allow you to perform complex queries while
+maintaining performance that scales with the size of the result
+set. You can keep index definitions in your project directory
+and publish them with firebase deploy.
+
+? What file should be used for Firestore indexes? (firestore.indexes.json)
+√ What file should be used for Firestore indexes? firestore.indexes.json
++  Wrote firestore.rules
++  Wrote firestore.indexes.json
+
+=== Agent Skills Setup
+If you are using an AI coding agent, Firebase Agent Skills make it an expert at Firebase.
+
++  Wrote configuration info to firebase.json
++  Wrote project information to .firebaserc
+
++  Firebase initialization complete!
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase use --add
+
+Error: Cannot run firebase use --add in non-interactive mode. Use firebase use <project_id> --alias <alias> instead.
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase use boxly-io --alias default
+Created alias default for boxly-io.
+Now using project boxly-io
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ cat .firebaserc
+cat firestore.rules
+{
+  "projects": {
+    "default": "boxly-io"
+  },
+  "targets": {},
+  "etags": {}
+}rules_version='2'
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      // This rule allows anyone with your database reference to view, edit,
+      // and delete all data in your database. It is useful for getting
+      // started, but it is configured to expire after 30 days because it
+      // leaves your app open to attackers. At that time, all client
+      // requests to your database will be denied.
+      //
+      // Make sure to write security rules for your app before that time, or
+      // else all client requests to your database will be denied until you
+      // update your rules.
+      allow read, write: if request.time < timestamp.date(2026, 8, 26);
+    }
+  }
+}
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ cat > firestore.rules << 'EOF'
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function estaLogueado() {
+      return request.auth != null;
+    }
+    function negocioIdDelUsuario() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.negocioId;
+    }
+    function perteneceAlNegocio(negocioId) {
+      return estaLogueado() && negocioIdDelUsuario() == negocioId;
+    }
+    function isCreator() {
+      return estaLogueado()
+        && request.auth.token.email == "miguelcoronell94@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+    function esEncargado() {
+      return estaLogueado() && request.auth.token.rol == "encargado";
+    }
+    function miSucursalClaim() {
+      return request.auth.token.sucursalId;
+EOF } } allow read, write: if perteneceAlNegocio(negocioId);Encargado();Id);rsal
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ cat firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function estaLogueado() {
+      return request.auth != null;
+    }
+    function negocioIdDelUsuario() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.negocioId;
+    }
+    function perteneceAlNegocio(negocioId) {
+      return estaLogueado() && negocioIdDelUsuario() == negocioId;
+    }
+    function isCreator() {
+      return estaLogueado()
+        && request.auth.token.email == "miguelcoronell94@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+    function esEncargado() {
+      return estaLogueado() && request.auth.token.rol == "encargado";
+    }
+    function miSucursalClaim() {
+      return request.auth.token.sucursalId;
+    }
+
+    match /{document=**} {
+      allow read, write: if isCreator();
+    }
+
+    match /users/{uid} {
+      allow read: if estaLogueado() && (request.auth.uid == uid || negocioIdDelUsuario() == resource.data.negocioId);
+      allow create: if estaLogueado()
+        && request.auth.uid == uid
+        && request.resource.data.negocioId == uid
+        && request.resource.data.rol == "Administrador";
+      allow update: if estaLogueado()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['nombre', 'telefono', 'fotoURL']);
+      allow delete: if false;
+    }
+
+    match /negocios/{negocioId} {
+      allow read, update: if perteneceAlNegocio(negocioId);
+      allow create: if estaLogueado() && negocioId == request.auth.uid;
+      allow delete: if false;
+
+      match /productos/{productId} {
+        allow read, write: if perteneceAlNegocio(negocioId);
+      }
+
+      match /movimientos/{movId} {
+        allow read: if perteneceAlNegocio(negocioId) &&
+          (!esEncargado() || miSucursalClaim() == resource.data.sucursalId);
+        allow create: if perteneceAlNegocio(negocioId) &&
+          (!esEncargado() || miSucursalClaim() == request.resource.data.sucursalId);
+        allow update, delete: if perteneceAlNegocio(negocioId) &&
+          (!esEncargado() || miSucursalClaim() == resource.data.sucursalId);
+      }
+
+      match /sucursales/{sucursalId} {
+        allow read: if perteneceAlNegocio(negocioId);
+        allow write: if perteneceAlNegocio(negocioId) && !esEncargado();
+      }
+
+      match /usuarios/{usuarioId} {
+        allow read, write: if perteneceAlNegocio(negocioId);
+      }
+    }
+  }
+}
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ firebase deploy --only firestore:rules
+
+=== Deploying to 'boxly-io'...
+
+i  deploying firestore
+i  firestore: ensuring required API firestore.googleapis.com is enabled...
++  firestore: required API firestore.googleapis.com is enabled
+i  firestore: ensuring required API firestore.googleapis.com is enabled...
+i  firestore: reading indexes from firestore.indexes.json...
+i  cloud.firestore: checking firestore.rules for compilation errors...
++  cloud.firestore: rules file firestore.rules compiled successfully
+i  firestore: uploading rules firestore.rules...
++  firestore: released rules firestore.rules to cloud.firestore
+
++  Deploy complete!
+
+Project Console: https://console.firebase.google.com/project/boxly-io/overview
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ cat > firestore.rules << 'EOF'
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function estaLogueado() {
+      return request.auth != null;
+    }
+    function negocioIdDelUsuario() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.negocioId;
+    }
+    function perteneceAlNegocio(negocioId) {
+      return estaLogueado() && negocioIdDelUsuario() == negocioId;
+    }
+    function isCreator() {
+      return estaLogueado()
+        && request.auth.token.email == "miguelcoronell94@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+    // FIX: token.get("rol", null) en vez de token.rol — evita el error de
+    // evaluación cuando el claim "rol" no existe (caso del Administrador,
+    // que nunca tiene custom claims seteados).
+    function esEncargado() {
+      return estaLogueado() && request.auth.token.get("rol", null) == "encargadofirebase deploy --only firestore:ruleseAlNegocio(negocioId);Encargado();Id);rsal
+
+=== Deploying to 'boxly-io'...
+
+i  deploying firestore
+i  firestore: ensuring required API firestore.googleapis.com is enabled...
+i  firestore: ensuring required API firestore.googleapis.com is enabled...
+i  firestore: reading indexes from firestore.indexes.json...
+i  cloud.firestore: checking firestore.rules for compilation errors...
++  cloud.firestore: rules file firestore.rules compiled successfully
+i  firestore: uploading rules firestore.rules...
++  firestore: released rules firestore.rules to cloud.firestore
+
++  Deploy complete!
+
+Project Console: https://console.firebase.google.com/project/boxly-io/overview
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npx vercel env pull .env.local
+cat .env.local
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+Retrieving project…
+> Overwriting existing .env.local file
+> Downloading `development` environment variables for miguelcoronell94-5827s-projects/app
+Downloading
+
+  Changes:
+  + VERCEL_OIDC_TOKEN (Updated)
+
+
+✓ Updated         .env.local file
+# Created by Vercel CLI
+VERCEL_OIDC_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Im1yay00MzAyZWMxYjY3MGY0OGE5OGFkNjFkYWRlNGEyM2JlNyJ9.eyJpc3MiOiJodHRwczovL29pZGMudmVyY2VsLmNvbS9taWd1ZWxjb3JvbmVsbDk0LTU4MjdzLXByb2plY3RzIiwic3ViIjoib3duZXI6bWlndWVsY29yb25lbGw5NC01ODI3cy1wcm9qZWN0czpwcm9qZWN0OmFwcDplbnZpcm9ubWVudDpkZXZlbG9wbWVudCIsInNjb3BlIjoib3duZXI6bWlndWVsY29yb25lbGw5NC01ODI3cy1wcm9qZWN0czpwcm9qZWN0OmFwcDplbnZpcm9ubWVudDpkZXZlbG9wbWVudCIsImF1ZCI6Imh0dHBzOi8vdmVyY2VsLmNvbS9taWd1ZWxjb3JvbmVsbDk0LTU4MjdzLXByb2plY3RzIiwib3duZXIiOiJtaWd1ZWxjb3JvbmVsbDk0LTU4MjdzLXByb2plY3RzIiwib3duZXJfaWQiOiJ0ZWFtX2R6bTNna29oOVFHNTE3YWQyMDBkZEg4bSIsInByb2plY3QiOiJhcHAiLCJwcm9qZWN0X2lkIjoicHJqX0xrNWszRDZ4YmFPazgzMWVaT2dtWElYam9Ob2giLCJlbnZpcm9ubWVudCI6ImRldmVsb3BtZW50IiwicGxhbiI6ImhvYmJ5IiwidXNlcl9pZCI6InRaTE5pRUFBMEJqekF2TWRIaFQ5cVd3TSIsImNsaWVudF9pZCI6ImNsX0hZeU9QQk50Rk1mSGhhVW45TDRRUGZUWno2VFA0N2JwIiwibmJmIjoxNzg1MTI3NTIzLCJpYXQiOjE3ODUxMjc1MjMsImV4cCI6MTc4NTE3MDcyM30.BsurPkzh4i3jauON6nfsUeI1CoekbgS32WbTvK86TqJ5jJTZVRR0X6AjtFUMPs_62YF8tDvGm_c04u1WaoIC9qKIjF50jHJYvdYthIc7U4IMGlcBDTnSmGDc_WB6VLOfeYKnbhcth448XiP6RkA9sR2aiGR0Sp2JxtG0FJMt3HnZ9aRnFa-I5rTXgGxi-0uhXxXe8RC0uuApKpQxMhVYrlyhzLhjkf5ZWmWH1n899WHZnZOBltJ4uHqz4t-rAp4jHUztEMTDl5LmTgb9BXLWtSbW30m3ykVMkse2yRlwB7jj7Nk8C3hE3R-o1bYQ016TRqREm09SHp7siJHAoUMjsA"
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npm install dotenv --save-dev
+node diagnostico.js
+npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+npm warn deprecated uuid@9.0.1: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+npm warn deprecated uuid@10.0.0: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+
+added 168 packages, and audited 169 packages in 47s
+
+26 packages are looking for funding
+  run `npm fund` for details
+
+8 moderate severity vulnerabilities
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+node:internal/modules/cjs/loader:1459
+  throw err;
+  ^
+
+Error: Cannot find module 'C:\Users\pc\OneDrive\Documents\Boxly_App\diagnostico.
+js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1066:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1071:22)
+    at Module._load (node:internal/modules/cjs/loader:1242:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main
+:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v24.14.0
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ npx vercel env pull .env.local --environment=production
+cat .env.local
+Vercel CLI 56.3.1 (Node.js 24.14.0)
+Retrieving project…
+> Overwriting existing .env.local file
+> Downloading `production` environment variables for miguelcoronell94-5827s-projects/app
+Downloading
+
+  Changes:
+  + VERCEL_OIDC_TOKEN (Updated)
+  + FIREBASE_CLIENT_EMAIL
+  + FIREBASE_PRIVATE_KEY
+  + FIREBASE_PROJECT_ID
+  + NX_DAEMON
+  + PAYPAL_API_BASE
+  + PAYPAL_CLIENT_ID
+  + PAYPAL_CLIENT_SECRET
+  + PAYPAL_WEBHOOK_ID
+  + TURBO_CACHE
+  + TURBO_DOWNLOAD_LOCAL_ENABLED
+  + TURBO_REMOTE_ONLY
+  + TURBO_RUN_SUMMARY
+  + VERCEL
+  + VERCEL_ENV
+  + VERCEL_GIT_COMMIT_AUTHOR_LOGIN
+  + VERCEL_GIT_COMMIT_AUTHOR_NAME
+  + VERCEL_GIT_COMMIT_MESSAGE
+  + VERCEL_GIT_COMMIT_REF
+  + VERCEL_GIT_COMMIT_SHA
+  + VERCEL_GIT_PREVIOUS_SHA
+  + VERCEL_GIT_PROVIDER
+  + VERCEL_GIT_PULL_REQUEST_ID
+  + VERCEL_GIT_REPO_ID
+  + VERCEL_GIT_REPO_OWNER
+  + VERCEL_GIT_REPO_SLUG
+  + VERCEL_TARGET_ENV
+  + VERCEL_URL
+
+
+✓ Updated         .env.local file
+# Created by Vercel CLI
+FIREBASE_CLIENT_EMAIL="firebase-adminsdk-fbsvc@boxly-io.iam.gserviceaccount.com"
+FIREBASE_PRIVATE_KEY="[SENSITIVE]"
+FIREBASE_PROJECT_ID="boxly-io"
+NX_DAEMON="false"
+PAYPAL_API_BASE="https://api-m.paypal.com"
+PAYPAL_CLIENT_ID="[SENSITIVE]"
+PAYPAL_CLIENT_SECRET="[SENSITIVE]"
+PAYPAL_WEBHOOK_ID="36044429N1936072A"
+TURBO_CACHE="remote:rw"
+TURBO_DOWNLOAD_LOCAL_ENABLED="true"
+TURBO_REMOTE_ONLY="true"
+TURBO_RUN_SUMMARY="true"
+VERCEL="1"
+VERCEL_ENV="production"
+VERCEL_GIT_COMMIT_AUTHOR_LOGIN=""
+VERCEL_GIT_COMMIT_AUTHOR_NAME=""
+VERCEL_GIT_COMMIT_MESSAGE=""
+VERCEL_GIT_COMMIT_REF=""
+VERCEL_GIT_COMMIT_SHA=""
+VERCEL_GIT_PREVIOUS_SHA=""
+VERCEL_GIT_PROVIDER=""
+VERCEL_GIT_PULL_REQUEST_ID=""
+VERCEL_GIT_REPO_ID=""
+VERCEL_GIT_REPO_OWNER=""
+VERCEL_GIT_REPO_SLUG=""
+VERCEL_OIDC_TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Im1yay00MzAyZWMxYjY3MGY0OGE5OGFkNjFkYWRlNGEyM2JlNyJ9.eyJpc3MiOiJodHRwczovL29pZGMudmVyY2VsLmNvbS9taWd1ZWxjb3JvbmVsbDk0LTU4MjdzLXByb2plY3RzIiwic3ViIjoib3duZXI6bWlndWVsY29yb25lbGw5NC01ODI3cy1wcm9qZWN0czpwcm9qZWN0OmFwcDplbnZpcm9ubWVudDpkZXZlbG9wbWVudCIsInNjb3BlIjoib3duZXI6bWlndWVsY29yb25lbGw5NC01ODI3cy1wcm9qZWN0czpwcm9qZWN0OmFwcDplbnZpcm9ubWVudDpkZXZlbG9wbWVudCIsImF1ZCI6Imh0dHBzOi8vdmVyY2VsLmNvbS9taWd1ZWxjb3JvbmVsbDk0LTU4MjdzLXByb2plY3RzIiwib3duZXIiOiJtaWd1ZWxjb3JvbmVsbDk0LTU4MjdzLXByb2plY3RzIiwib3duZXJfaWQiOiJ0ZWFtX2R6bTNna29oOVFHNTE3YWQyMDBkZEg4bSIsInByb2plY3QiOiJhcHAiLCJwcm9qZWN0X2lkIjoicHJqX0xrNWszRDZ4YmFPazgzMWVaT2dtWElYam9Ob2giLCJlbnZpcm9ubWVudCI6ImRldmVsb3BtZW50IiwicGxhbiI6ImhvYmJ5IiwidXNlcl9pZCI6InRaTE5pRUFBMEJqekF2TWRIaFQ5cVd3TSIsImNsaWVudF9pZCI6ImNsX0hZeU9QQk50Rk1mSGhhVW45TDRRUGZUWno2VFA0N2JwIiwibmJmIjoxNzg1MTI3NzU0LCJpYXQiOjE3ODUxMjc3NTQsImV4cCI6MTc4NTE3MDk1NH0.Zct5kb3y-3SiZAtyWWC9NXxMVAMy6vOBdKWsX4v9opcqmqaaYxO9dOvwQzkHG86qSvdFgEAU2TL0OhqL0VS5krq3qI6NuEJ0687lOTpb8EozIVhwqdd_NkGwLUfhVAAxAC59EGYF7gIJLpoaRcini_fIkVn6T9W9BdLm5OtAH-eKjR91NhtEhliR3cXb1oOQUtV3vHJKW3oze-eMYXRCqLdL_v2_-KRYBRT7BNb53GCXhvWEGc0aSCl5-H4A-_Adt1sAjNIGXUaY4ViroxS4Cp9LHxyYsvOZ7hYl9DS0dhjgpT1qHbBP4ROr8tER7DMRXzBZkqwi81e5NJgl4C4G6w"
+VERCEL_TARGET_ENV="production"
+VERCEL_URL=""
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$ node diagnostico.js
+◇ injected env (28) from .env.local // tip: ⌘ suppress logs { quiet: true }
+C:\Users\pc\OneDrive\Documents\Boxly_App\node_modules\firebase-admin\lib\app\cre
+dential-internal.js:153
+            throw new error_1.FirebaseAppError(error_1.AppErrorCodes.INVALID_CRE
+DENTIAL, 'Failed to parse private key: ' + error);
+            ^
+
+FirebaseAppError: Failed to parse private key: Error: Invalid PEM formatted mess
+age.
+    at new ServiceAccount (C:\Users\pc\OneDrive\Documents\Boxly_App\node_modules
+\firebase-admin\lib\app\credential-internal.js:153:19)
+    at new ServiceAccountCredential (C:\Users\pc\OneDrive\Documents\Boxly_App\no
+de_modules\firebase-admin\lib\app\credential-internal.js:70:15)
+    at Object.cert (C:\Users\pc\OneDrive\Documents\Boxly_App\node_modules\fireba
+se-admin\lib\app\credential-factory.js:103:54)
+    at Object.<anonymous> (C:\Users\pc\OneDrive\Documents\Boxly_App\diagnostico.
+js:18:34)
+    at Module._compile (node:internal/modules/cjs/loader:1812:14)
+    at Object..js (node:internal/modules/cjs/loader:1943:10)
+    at Module.load (node:internal/modules/cjs/loader:1533:32)
+    at Module._load (node:internal/modules/cjs/loader:1335:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main
+:154:5) {
+  errorInfo: {
+    code: 'app/invalid-credential',
+    message: 'Failed to parse private key: Error: Invalid PEM formatted message.
+'
+  },
+  codePrefix: 'app'
+}
+
+Node.js v24.14.0
+
+pc@MiGuEl MINGW64 ~/OneDrive/Documents/Boxly_App (main)
+$
