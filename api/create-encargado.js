@@ -85,6 +85,10 @@ module.exports = async function handler(req, res) {
       return res.status(403).json({ error: "Solo un Administrador puede crear encargados de sucursal." });
     }
 
+    // El negocioId real del Admin (coincide con su propio uid en el flujo normal
+    // de registro, pero lo leemos de su doc en vez de asumirlo).
+    const negocioId = callerData.negocioId || callerUid;
+
     // ------------------------------------------------------------------
     // 2) Validar el body
     // ------------------------------------------------------------------
@@ -103,11 +107,12 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Falta la sucursal asignada." });
     }
 
-    // Verificamos que la sucursal exista y pertenezca a la cuenta del Admin
-    // que está creando el encargado (multi-tenant: cada Admin es dueño de
-    // sus propias sucursales, identificadas por adminId == callerUid).
-    const sucursalDoc = await db.collection("sucursales").doc(sucursalId).get();
-    if (!sucursalDoc.exists || sucursalDoc.data().adminId !== callerUid) {
+    // Verificamos que la sucursal exista dentro del negocio del Admin que
+    // está creando el encargado. Las sucursales viven en
+    // negocios/{negocioId}/sucursales/{sucursalId} (subcolección), no en una
+    // colección raíz — por eso antes esta verificación siempre fallaba.
+    const sucursalDoc = await db.collection("negocios").doc(negocioId).collection("sucursales").doc(sucursalId).get();
+    if (!sucursalDoc.exists) {
       return res.status(400).json({ error: "La sucursal indicada no existe o no te pertenece." });
     }
 
@@ -136,27 +141,32 @@ module.exports = async function handler(req, res) {
     }
 
     // ------------------------------------------------------------------
-    // 4) Guardar su perfil en Firestore: colección "users"
+    // 4) Guardar su perfil en Firestore: colección "users" (nivel raíz,
+    //    mismo lugar donde vive el perfil del Administrador — así el
+    //    listener de la app puede traer todos los usuarios de un negocio
+    //    con una sola query: users.where("negocioId","==",negocioId)).
     // ------------------------------------------------------------------
-    await db.collection("users").doc(userRecord.uid).set({
+    const perfilEncargado = {
       nombre: nombre.trim(),
       email: email.trim().toLowerCase(),
       rol: "encargado",
       sucursalId,
-      negocioId: callerUid, // a qué negocio pertenece este encargado (el del Admin que lo crea)
+      negocioId, // a qué negocio pertenece este encargado (el del Admin que lo crea)
       activo: true,
       creadoEn: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    await db.collection("users").doc(userRecord.uid).set(perfilEncargado);
 
     // ------------------------------------------------------------------
-    // 5) Custom Claims (opcional, muy recomendado): permite que las
-    //    Firestore Security Rules lean request.auth.token.rol y
-    //    request.auth.token.sucursalId sin tener que ir a buscar el doc.
+    // 5) Custom Claims: permiten que las Firestore Security Rules lean
+    //    request.auth.token.rol y request.auth.token.sucursalId sin tener
+    //    que ir a buscar el doc — esto es lo que usan las rules para
+    //    limitar al encargado a ver/operar solo su sucursal en movimientos.
     // ------------------------------------------------------------------
     await admin.auth().setCustomUserClaims(userRecord.uid, {
       rol: "encargado",
       sucursalId,
-      adminId: callerUid
+      negocioId
     });
 
     return res.status(200).json({ ok: true, uid: userRecord.uid });
@@ -168,15 +178,9 @@ module.exports = async function handler(req, res) {
 
 /**
  * -----------------------------------------------------------------------
- * Ejemplo de Firestore Security Rule que aprovecha estos Custom Claims,
- * para que un encargado SOLO pueda leer/escribir movimientos de SU sucursal:
- *
- * match /movimientos/{movId} {
- *   allow read, write: if request.auth != null && (
- *     request.auth.token.rol == "Administrador" ||
- *     (request.auth.token.rol == "encargado" &&
- *      request.auth.token.sucursalId == resource.data.sucursalId)
- *   );
- * }
+ * Estos Custom Claims (rol / sucursalId / negocioId) ya están aprovechados
+ * en firestore.rules, dentro de negocios/{negocioId}/movimientos/{movId}:
+ * un encargado solo puede leer/escribir movimientos de SU sucursal; el
+ * Administrador (sin el claim "encargado") ve y opera todas.
  * -----------------------------------------------------------------------
  */

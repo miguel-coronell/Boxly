@@ -43,7 +43,20 @@ if (isFirebaseReady()) {
       window.location.replace("login.html");
       return;
     }
-    repararDocumentosDeCuentaVieja(firebaseUser);
+    /* FIX: antes, iniciarSincronizacionFirestore() se llamaba suelta al final
+       del archivo (fuera de este callback), apenas cargaba el script — sin
+       esperar a que Firebase confirmara la sesión ni a que se reparen/creen
+       los documentos users/{uid} y negocios/{uid} de la cuenta. En una cuenta
+       recién registrada eso genera una carrera real: Firestore puede recibir
+       la primera lectura antes de que el documento del negocio exista, responde
+       permission-denied, y como onSnapshot no reintenta solo, el toast de
+       error "no se pudieron sincronizar los productos" queda pegado aunque
+       medio segundo después todo esté en orden. Ahora encadenamos: primero
+       reparar/crear documentos, y recién cuando esa promesa resuelve (o falla)
+       nos suscribimos a Firestore. */
+    repararDocumentosDeCuentaVieja(firebaseUser).finally(() => {
+      iniciarSincronizacionFirestore();
+    });
   });
 }
 
@@ -57,7 +70,7 @@ if (isFirebaseReady()) {
 function repararDocumentosDeCuentaVieja(firebaseUser) {
   const db = getFirestoreDb();
   const userRef = db.collection("users").doc(firebaseUser.uid);
-  userRef.get().then((userDoc) => {
+  return userRef.get().then((userDoc) => {
     if (userDoc.exists) return; // cuenta ya migrada, no hace falta nada
     console.warn("Cuenta vieja sin users/{uid}: creando documentos por defecto.", firebaseUser.uid);
     const batch = db.batch();
@@ -94,6 +107,7 @@ let NEGOCIO_ID = null;
 let unsubscribeProductos = null;
 let unsubscribeMovimientos = null;
 let unsubscribeSucursales = null;
+let unsubscribeEncargados = null;
 
 function iniciarSincronizacionFirestore() {
   if (!isFirebaseReady() || !CURRENT_USER) return;
@@ -105,11 +119,19 @@ function iniciarSincronizacionFirestore() {
       suscribirMovimientosFirestore(db);
       suscribirSucursalesFirestore(db);
       suscribirNegocioFirestore(db);
+      suscribirEncargadosFirestore(db);
     })
     .catch((err) => console.error("No se pudo leer el negocioId del usuario.", err));
 }
 
-function suscribirProductosFirestore(db) {
+/* FIX: permission-denied puede ser transitorio (p.ej. el documento del
+   negocio recién se está creando en Firestore cuando esta suscripción
+   arranca). onSnapshot deja de escuchar apenas dispara su callback de error
+   y no reintenta solo, así que antes cualquier permission-denied momentáneo
+   dejaba el toast de error pegado para siempre aunque todo se resolviera un
+   instante después. Ahora, solo para ese código de error puntual, reintentamos
+   una vez tras una pequeña espera antes de mostrar el error al usuario. */
+function suscribirProductosFirestore(db, _retried) {
   if (unsubscribeProductos) unsubscribeProductos();
   unsubscribeProductos = db.collection("negocios").doc(NEGOCIO_ID).collection("productos")
     .onSnapshot(
@@ -120,6 +142,10 @@ function suscribirProductosFirestore(db) {
       },
       (err) => {
         console.error("Error escuchando productos en Firestore.", err);
+        if (err.code === "permission-denied" && !_retried) {
+          setTimeout(() => suscribirProductosFirestore(db, true), 1500);
+          return;
+        }
         showToast("No se pudieron sincronizar los productos. Revisá tu conexión.", "error");
       }
     );
@@ -128,7 +154,7 @@ function suscribirProductosFirestore(db) {
 /* Paso 6C: movimientos en tiempo real. El stock de cada producto se actualiza
    con runTransaction() dentro de registerMovement(), no acá — este listener solo
    refleja en pantalla lo que ya quedó confirmado en Firestore. */
-function suscribirMovimientosFirestore(db) {
+function suscribirMovimientosFirestore(db, _retried) {
   if (unsubscribeMovimientos) unsubscribeMovimientos();
   unsubscribeMovimientos = db.collection("negocios").doc(NEGOCIO_ID).collection("movimientos")
     .onSnapshot(
@@ -140,13 +166,17 @@ function suscribirMovimientosFirestore(db) {
       },
       (err) => {
         console.error("Error escuchando movimientos en Firestore.", err);
+        if (err.code === "permission-denied" && !_retried) {
+          setTimeout(() => suscribirMovimientosFirestore(db, true), 1500);
+          return;
+        }
         showToast("No se pudieron sincronizar los movimientos. Revisá tu conexión.", "error");
       }
     );
 }
 
 /* Paso 6D (sucursales): mismo patrón que productos/movimientos. */
-function suscribirSucursalesFirestore(db) {
+function suscribirSucursalesFirestore(db, _retried) {
   if (unsubscribeSucursales) unsubscribeSucursales();
   unsubscribeSucursales = db.collection("negocios").doc(NEGOCIO_ID).collection("sucursales")
     .onSnapshot(
@@ -157,6 +187,10 @@ function suscribirSucursalesFirestore(db) {
       },
       (err) => {
         console.error("Error escuchando sucursales en Firestore.", err);
+        if (err.code === "permission-denied" && !_retried) {
+          setTimeout(() => suscribirSucursalesFirestore(db, true), 1500);
+          return;
+        }
         showToast("No se pudieron sincronizar las sucursales. Revisá tu conexión.", "error");
       }
     );
@@ -200,8 +234,6 @@ function suscribirNegocioFirestore(db) {
       (err) => console.error("Error escuchando el documento del negocio en Firestore.", err)
     );
 }
-
-iniciarSincronizacionFirestore();
 
 
 
@@ -675,11 +707,16 @@ const PDF_ICONS = {
 };
 
 /* ---------------------------- Datos de demo ---------------------------- */
-function seedData() {
-
 /* Estructura vacía para cuentas realmente nuevas: sin productos ni movimientos
    de ejemplo, pero con la sucursal por defecto (necesaria para que los
-   formularios de Entradas/Salidas tengan al menos una opción). */
+   formularios de Entradas/Salidas tengan al menos una opción).
+   FIX: esta función vivía ANIDADA dentro de seedData() (declarada en medio de
+   su cuerpo), así que no era accesible desde loadStore() ni desde ningún otro
+   lugar del archivo — llamarla disparaba "seedEmptyData is not defined", lo
+   que detenía toda la ejecución del script en la línea `let STORE = loadStore()`,
+   antes de que se conectaran los botones del menú lateral. Por eso la app
+   quedaba solo con el sidebar visible y sin poder navegar. Ahora es una
+   función de nivel superior, igual que seedData(). */
 function seedEmptyData() {
   return {
     products: [],
@@ -701,9 +738,7 @@ function seedEmptyData() {
   };
 }
 
-
-
-
+function seedData() {
   const today = new Date();
   const daysAgo = (n) => {
     const d = new Date(today);
@@ -833,14 +868,24 @@ function loadStore() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       const isNewUser = localStorage.getItem(NEW_USER_FLAG) === "true";
-      const seeded = isNewUser ? seedEmptyData() : seedData();
+      /* FIX: antes, si el flag NEW_USER_FLAG no estaba en "true" (algo que
+         pasaba seguido por el bug de flags globales de más abajo), se sembraba
+         seedData() con los 12 productos de demo — y como esto vive en
+         localStorage, esos productos "fantasma" llegaban a aparecer en
+         cuentas reales antes de que Firestore terminara de sincronizar (o si
+         la sincronización fallaba). Con Firebase configurado, Firestore es
+         siempre la fuente de verdad real y pisa este seed apenas conecta, así
+         que ya no tiene sentido arriesgarse a mostrar productos de demo:
+         arrancamos siempre en blanco. El catálogo de demo con productos de
+         ejemplo queda solo para cuando la app corre sin Firebase configurado. */
+      const seeded = (isFirebaseReady() || isNewUser) ? seedEmptyData() : seedData();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
       return seeded;
     }
     return migrateStore(JSON.parse(raw));
   } catch (err) {
     console.error("No se pudo cargar el almacenamiento local, usando datos de demo.", err);
-    return seedData();
+    return isFirebaseReady() ? seedEmptyData() : seedData();
   }
 }
 
@@ -2927,22 +2972,52 @@ document.getElementById("openAddSucursal").addEventListener("click", () => openS
    recién creado, lo que cerraría la sesión del Administrador que está logueado.
    La solución es delegar la creación a una Vercel Serverless Function que usa el
    Firebase Admin SDK (admin.auth().createUser), que no toca la sesión del cliente.
-   Ver /api/create-encargado.js.
+   Ver /api/create-encargado.js (creación) y /api/disable-encargado.js (baja).
 
-   Acá en el frontend guardamos además una copia liviana en STORE.encargados
-   (localStorage) solo para que la demo sin backend siga funcionando visualmente.
-   Cuando conectes Firebase de verdad, reemplazá renderEncargados() por un
-   onSnapshot sobre la colección "usuarios" filtrando rol == "encargado". */
+   FIX: esta sección vivía enteramente en STORE.encargados (localStorage) — un
+   invento aparte que ni siquiera reflejaba lo que create-encargado.js guarda
+   en Firestore. Ahora STORE.encargados se llena en tiempo real desde la
+   colección "users" (nivel raíz, misma donde vive el perfil del Admin),
+   filtrando por negocioId + rol == "encargado" — ver suscribirEncargadosFirestore()
+   más abajo. PENDING_ENCARGADOS es solo un overlay transitorio en memoria
+   (nunca se persiste) para mostrar "Creando..." mientras el backend responde;
+   apenas Firestore confirma el alta, el listener en tiempo real lo reemplaza
+   por el dato real. */
+let PENDING_ENCARGADOS = {};
+
+function suscribirEncargadosFirestore(db) {
+  if (unsubscribeEncargados) unsubscribeEncargados();
+  unsubscribeEncargados = db.collection("users")
+    .where("negocioId", "==", NEGOCIO_ID)
+    .where("rol", "==", "encargado")
+    .onSnapshot(
+      (snapshot) => {
+        STORE.encargados = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        Object.keys(PENDING_ENCARGADOS).forEach((email) => {
+          if (STORE.encargados.some((e) => e.email === email)) delete PENDING_ENCARGADOS[email];
+        });
+        renderEncargados();
+      },
+      (err) => console.error("Error escuchando encargados en Firestore.", err)
+    );
+}
 
 function renderEncargados() {
   const tbody = document.getElementById("encargadosTableBody");
   const empty = document.getElementById("encargadosEmptyState");
   if (!tbody) return;
 
-  tbody.innerHTML = STORE.encargados
+  const pendientes = Object.values(PENDING_ENCARGADOS).map((p) => ({ ...p, id: null }));
+  const lista = [...STORE.encargados, ...pendientes];
+
+  tbody.innerHTML = lista
     .map((e) => {
-      const estadoClass = e.estado === "activo" ? "encargado-status-activo" : e.estado === "error" ? "encargado-status-error" : "encargado-status-pendiente";
-      const estadoLabel = e.estado === "activo" ? "Activo" : e.estado === "error" ? "Error al crear" : "Creando...";
+      const estadoClass = e.id
+        ? (e.activo === false ? "encargado-status-error" : "encargado-status-activo")
+        : (e.estado === "error" ? "encargado-status-error" : "encargado-status-pendiente");
+      const estadoLabel = e.id
+        ? (e.activo === false ? "Deshabilitado" : "Activo")
+        : (e.estado === "error" ? "Error al crear" : "Creando...");
       return `<tr>
         <td class="font-medium text-ink">
           <span class="avatar-sm">${e.nombre.charAt(0)}</span>
@@ -2952,37 +3027,63 @@ function renderEncargados() {
         <td class="text-slate-400">${sucursalName(e.sucursalId)}</td>
         <td class="${estadoClass} font-mono text-xs">${estadoLabel}</td>
         <td class="text-right">
-          <button class="icon-btn danger" data-remove-encargado="${e.id}" aria-label="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+          ${e.id ? `<button class="icon-btn" data-invite-encargado="${e.id}" aria-label="Reenviar invitación"><i data-lucide="send" class="h-4 w-4"></i></button>` : ""}
+          ${e.id ? `<button class="icon-btn danger" data-toggle-encargado="${e.id}" data-disabled="${e.activo === false}" aria-label="${e.activo === false ? "Reactivar" : "Deshabilitar"}"><i data-lucide="${e.activo === false ? "rotate-ccw" : "user-x"}" class="h-4 w-4"></i></button>` : ""}
         </td>
       </tr>`;
     })
     .join("");
 
-  if (empty) empty.classList.toggle("hidden", STORE.encargados.length > 0);
+  if (empty) empty.classList.toggle("hidden", lista.length > 0);
   refreshIcons();
 
-  tbody.querySelectorAll("[data-remove-encargado]").forEach((btn) => {
+  tbody.querySelectorAll("[data-invite-encargado]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const enc = STORE.encargados.find((x) => x.id === btn.getAttribute("data-remove-encargado"));
+      const enc = STORE.encargados.find((x) => x.id === btn.getAttribute("data-invite-encargado"));
+      if (enc) openInviteModal({ nombre: enc.nombre, email: enc.email, sucursalId: enc.sucursalId, password: null });
+    });
+  });
+
+  tbody.querySelectorAll("[data-toggle-encargado]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const encUid = btn.getAttribute("data-toggle-encargado");
+      const enc = STORE.encargados.find((x) => x.id === encUid);
+      const yaDeshabilitado = btn.getAttribute("data-disabled") === "true";
+      const accion = yaDeshabilitado ? "reactivar" : "deshabilitar";
       openConfirmModal(
-        "Quitar encargado",
-        `¿Seguro que querés quitar el acceso de <strong>${enc.nombre}</strong>? Esto no borra su usuario de Firebase Auth automáticamente; para eso necesitás otra función serverless de "deshabilitar usuario" (mismo patrón que create-encargado.js, usando admin.auth().updateUser(uid, { disabled: true })).`,
-        "Quitar",
-        () => {
-          STORE.encargados = STORE.encargados.filter((x) => x.id !== enc.id);
-          saveStore();
-          renderEncargados();
-          showToast("Encargado quitado de la lista.", "success");
-        }
+        yaDeshabilitado ? "Reactivar encargado" : "Deshabilitar encargado",
+        `¿Seguro que querés ${accion} el acceso de <strong>${enc.nombre}</strong>? ${yaDeshabilitado ? "Va a poder volver a iniciar sesión." : "No va a poder iniciar sesión hasta que lo reactives."}`,
+        yaDeshabilitado ? "Reactivar" : "Deshabilitar",
+        () => toggleEncargado(encUid, !yaDeshabilitado)
       );
     });
   });
 }
 
-/* Devuelve el ID token del usuario de Firebase actualmente logueado, si existe.
-   Esta demo corre con un login simulado en localStorage (CURRENT_USER), así que
-   por ahora devuelve null y el backend rechazará la request en producción real.
-   Apenas conectes firebase-auth-compat.js de verdad, esto empieza a andar solo. */
+async function toggleEncargado(encargadoUid, disabled) {
+  const idToken = await getIdTokenSafe();
+  try {
+    const res = await fetch("/api/disable-encargado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+      body: JSON.stringify({ uid: encargadoUid, disabled })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || "No se pudo actualizar el acceso del encargado.", "error");
+      return;
+    }
+    showToast(disabled ? "Encargado deshabilitado." : "Encargado reactivado.", "success");
+  } catch (err) {
+    console.error("Error llamando a /api/disable-encargado:", err);
+    showToast("No se pudo conectar con el servidor.", "error");
+  }
+}
+
+/* Devuelve el ID token del usuario de Firebase actualmente logueado. Con
+   Firebase Auth activo (como en esta app) esto funciona siempre que haya
+   sesión real; si por algún motivo no hay sesión de Firebase, el backend
+   rechaza la request igual, así que es seguro devolver null en ese caso. */
 async function getIdTokenSafe() {
   try {
     if (window.firebase && firebase.auth && firebase.auth().currentUser) {
@@ -2994,11 +3095,51 @@ async function getIdTokenSafe() {
   return null;
 }
 
-async function createEncargado({ nombre, email, password, sucursalId }) {
+/* Contraseña temporal aleatoria y segura — nunca usar el nombre de la
+   sucursal ni ningún dato público como contraseña: cualquiera que lo sepa
+   podría entrar. El encargado la recibe por WhatsApp/email y puede
+   cambiarla apenas entra (botón "¿Olvidaste tu contraseña?" en login.html). */
+function generarPasswordTemporal() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let pass = "";
+  for (let i = 0; i < 10; i++) pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  return pass;
+}
+
+/* Arma el mensaje de invitación (mismo texto para WhatsApp y email) con el
+   nombre de la sucursal, el email registrado y la contraseña temporal, y
+   abre un modal con un link de WhatsApp y un link mailto: ya completados
+   para que el Administrador se los mande al encargado con un clic. No hay
+   un servicio de envío de emails propio conectado, así que en vez de
+   "enviar" desde el servidor, se arma el mensaje y se abre el cliente de
+   WhatsApp/email del propio Administrador con todo precargado. */
+function openInviteModal({ nombre, email, sucursalId, password, telefono }) {
+  const sucursal = sucursalName(sucursalId);
+  const loginUrl = `${window.location.origin}/login.html`;
+  const lineaPassword = password
+    ? `Contraseña temporal: ${password} (te va a pedir cambiarla en tu primer ingreso)`
+    : `Usá la contraseña temporal que te compartieron antes, o tocá "¿Olvidaste tu contraseña?" en el login para generar una nueva.`;
+  const mensaje = `Hola ${nombre}! Te invitamos a usar Boxly como encargado/a de la sucursal "${sucursal}".\n\nIngresá en: ${loginUrl}\nEmail: ${email}\n${lineaPassword}\n\nDesde ahí vas a ver los movimientos de tu sucursal en tiempo real.`;
+
+  const whatsappUrl = telefono
+    ? `https://wa.me/${telefono.replace(/\D/g, "")}?text=${encodeURIComponent(mensaje)}`
+    : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+  const mailtoUrl = `mailto:${email}?subject=${encodeURIComponent("Invitación a Boxly")}&body=${encodeURIComponent(mensaje)}`;
+
+  openModal(
+    "Invitar al encargado",
+    `<p class="text-sm text-slate-400 mb-3">Elegí cómo mandarle el acceso a <strong>${nombre}</strong>. Se abre tu WhatsApp o tu email con el mensaje ya escrito.</p>
+     <a href="${whatsappUrl}" target="_blank" rel="noopener" class="btn-primary w-full justify-center mb-2"><i data-lucide="message-circle" class="h-4 w-4"></i> Enviar por WhatsApp</a>
+     <a href="${mailtoUrl}" class="btn-secondary w-full justify-center"><i data-lucide="mail" class="h-4 w-4"></i> Enviar por email</a>
+     <label class="form-label mt-4">O copiá el mensaje</label>
+     <textarea class="form-input" rows="6" readonly onclick="this.select()">${mensaje}</textarea>`,
+    () => {}
+  );
+}
+
+async function createEncargado({ nombre, email, password, sucursalId, telefono }) {
   const idToken = await getIdTokenSafe();
-  const localRecord = { id: uid("enc"), nombre, email, sucursalId, uid: null, estado: "pendiente" };
-  STORE.encargados.push(localRecord);
-  saveStore();
+  PENDING_ENCARGADOS[email] = { nombre, email, sucursalId, estado: "pendiente" };
   renderEncargados();
 
   try {
@@ -3015,22 +3156,19 @@ async function createEncargado({ nombre, email, password, sucursalId }) {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      localRecord.estado = "error";
-      saveStore();
+      PENDING_ENCARGADOS[email] = { nombre, email, sucursalId, estado: "error" };
       renderEncargados();
       showToast(data.error || "No se pudo crear el encargado.", "error");
       return;
     }
 
-    localRecord.estado = "activo";
-    localRecord.uid = data.uid || null;
-    saveStore();
-    renderEncargados();
+    // No borramos el pendiente todavía: lo saca suscribirEncargadosFirestore()
+    // apenas el onSnapshot en tiempo real confirma que el documento llegó.
     showToast(`Encargado ${nombre} creado correctamente.`, "success");
+    openInviteModal({ nombre, email, sucursalId, password, telefono });
   } catch (err) {
     console.error("Error llamando a /api/create-encargado:", err);
-    localRecord.estado = "error";
-    saveStore();
+    PENDING_ENCARGADOS[email] = { nombre, email, sucursalId, estado: "error" };
     renderEncargados();
     showToast("No se pudo conectar con el servidor. ¿Ya desplegaste /api/create-encargado en Vercel?", "error");
   }
@@ -3050,25 +3188,35 @@ function openEncargadoForm() {
       <input id="efNombre" type="text" class="form-input" placeholder="Ej: Marina Gómez" required>
       <label class="form-label">Email</label>
       <input id="efEmail" type="email" class="form-input" placeholder="marina@negocio.com" required>
+      <label class="form-label">Teléfono (WhatsApp, opcional)</label>
+      <input id="efTelefono" type="tel" class="form-input" placeholder="Ej: 5492613863563">
       <label class="form-label">Contraseña temporal</label>
-      <input id="efPassword" type="password" class="form-input" placeholder="Mínimo 6 caracteres" minlength="6" required>
+      <div class="password-field">
+        <input id="efPassword" type="text" class="form-input" placeholder="Mínimo 6 caracteres" minlength="6" required value="${generarPasswordTemporal()}">
+        <button type="button" id="efRegenPassword" class="password-toggle" aria-label="Generar otra contraseña"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button>
+      </div>
       <label class="form-label">Sucursal asignada</label>
       <select id="efSucursal" class="form-input">${sucursalOptions}</select>
-      <p class="text-xs text-slate-400 mt-1"><i data-lucide="info" class="h-3 w-3 inline"></i> El encargado va a poder iniciar sesión con este email y contraseña, y solo va a ver/operar la sucursal asignada.</p>
+      <p class="text-xs text-slate-400 mt-1"><i data-lucide="info" class="h-3 w-3 inline"></i> El encargado va a poder iniciar sesión con este email y contraseña, y solo va a ver/operar la sucursal asignada. Después de crearlo te dejamos mandarle la invitación por WhatsApp o email.</p>
       <button type="submit" class="btn-primary w-full justify-center mt-4">
         <i data-lucide="user-cog" class="h-4 w-4"></i>
         Crear encargado
       </button>
     </form>`,
     (body) => {
+      body.querySelector("#efRegenPassword").addEventListener("click", () => {
+        body.querySelector("#efPassword").value = generarPasswordTemporal();
+      });
+
       body.querySelector("#encargadoForm").addEventListener("submit", async (e) => {
         e.preventDefault();
         const nombre = body.querySelector("#efNombre").value.trim();
         const email = body.querySelector("#efEmail").value.trim().toLowerCase();
+        const telefono = body.querySelector("#efTelefono").value.trim();
         const password = body.querySelector("#efPassword").value;
         const sucursalId = body.querySelector("#efSucursal").value;
 
-        if (STORE.encargados.some((x) => x.email.toLowerCase() === email)) {
+        if (STORE.encargados.some((x) => x.email.toLowerCase() === email) || PENDING_ENCARGADOS[email]) {
           showToast("Ya hay un encargado con ese email.", "error");
           return;
         }
@@ -3076,7 +3224,7 @@ function openEncargadoForm() {
         const submitBtn = body.querySelector("button[type=submit]");
         submitBtn.disabled = true;
         closeModal();
-        await createEncargado({ nombre, email, password, sucursalId });
+        await createEncargado({ nombre, email, password, sucursalId, telefono });
       });
     }
   );
@@ -3432,11 +3580,25 @@ function openTour() {
   window.addEventListener("scroll", handleTourReposition, true);
 }
 
+/* FIX: TOUR_DONE_FLAG y NEW_USER_FLAG vivían como una única clave GLOBAL en
+   localStorage, no atada a la cuenta (uid). Resultado: apenas una primera
+   cuenta terminaba o cerraba el tour, boxly_onboarding_done quedaba en
+   "true" para SIEMPRE en ese navegador — así que cualquier cuenta nueva que
+   se creara después, en el mismo PC/navegador, heredaba el "ya visto" y
+   nunca veía el tour, aunque fuera su primer inicio de sesión real. Ahora el
+   "visto" se guarda por uid (scopedFlagKey), así cada cuenta tiene su propio
+   estado de onboarding sin importar qué otras cuentas se hayan usado antes
+   en ese mismo navegador. */
+function scopedFlagKey(base) {
+  return CURRENT_USER && CURRENT_USER.uid ? `${base}:${CURRENT_USER.uid}` : base;
+}
+
 function closeTour() {
   document.getElementById("tourBackdrop").classList.remove("is-open");
   document.getElementById("tourSpotlight").classList.remove("is-visible");
-  localStorage.setItem(TOUR_DONE_FLAG, "true");
+  localStorage.setItem(scopedFlagKey(TOUR_DONE_FLAG), "true");
   localStorage.removeItem(NEW_USER_FLAG);
+  localStorage.removeItem(scopedFlagKey(NEW_USER_FLAG));
   window.removeEventListener("resize", handleTourReposition);
   window.removeEventListener("scroll", handleTourReposition, true);
 }
@@ -3465,8 +3627,8 @@ const replayBtn = document.getElementById("replayTourBtn");
 if (replayBtn) replayBtn.addEventListener("click", openTour);
 
 function initOnboardingTour() {
-  const isNewUser = localStorage.getItem(NEW_USER_FLAG) === "true";
-  const alreadySeen = localStorage.getItem(TOUR_DONE_FLAG) === "true";
+  const isNewUser = localStorage.getItem(NEW_USER_FLAG) === "true" || localStorage.getItem(scopedFlagKey(NEW_USER_FLAG)) === "true";
+  const alreadySeen = localStorage.getItem(scopedFlagKey(TOUR_DONE_FLAG)) === "true";
   if (isNewUser && !alreadySeen) {
     setTimeout(openTour, 500);
   }
