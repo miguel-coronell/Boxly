@@ -795,16 +795,22 @@ function seedData() {
   return { products, movements, users, sucursales, settings, encargados };
 }
 
+/* URL de producción de las funciones serverless en Vercel. La app corre en
+   GitHub Pages (miguel-coronell.github.io), un dominio distinto al de Vercel,
+   así que las llamadas a /api/... necesitan la URL absoluta, no una ruta
+   relativa. Usar SIEMPRE el alias estable de producción (no una URL de
+   deployment puntual tipo app-xxxxx-proyecto.vercel.app, que cambia en cada push). */
+const API_BASE = "https://app-nine-dusky-55.vercel.app";
+
 /* ---------------------------- Persistencia ---------------------------- */
-/* FIX: esta constante vivía declarada más abajo (dentro de migrateStore, ver
-   línea de abajo), pero se usa DENTRO de migrateStore(), que se llama acá
-   mismo, en la siguiente línea. Como "const" no se "activa" hasta que el
-   motor de JS llega a su propia línea de declaración, migrateStore() la
-   necesitaba antes de que existiera — eso tira un ReferenceError ("Cannot
-   access before initialization") que hacía que loadStore() cayera siempre en
-   su catch, ignorando los datos reales guardados y arrancando de cero cada
-   vez que abrías la página. Ahora está declarada antes de usarse. */
+/* FIX: LEGACY_DEMO_EMAILS tiene que estar declarado ANTES de llamar a
+   loadStore() (que internamente llama a migrateStore(), que usa esta
+   constante). Antes estaba declarada más abajo en el archivo, y como
+   const/let viven en "zona muerta temporal" hasta su propia línea, usarla
+   acá arriba tiraba ReferenceError y hacía que loadStore() cayera siempre
+   al catch, mostrando datos de demo vacíos en vez de los datos reales. */
 const LEGACY_DEMO_EMAILS = ["admin@boxlyapp.com", "lucia@boxlyapp.com", "diego@boxlyapp.com"];
+
 let STORE = loadStore();
 
 /* ---------------------------- Dueño de la cuenta (admin real) ----------------------------
@@ -900,7 +906,8 @@ function loadStore() {
 
 /* Asegura que datos guardados con versiones anteriores tengan los campos nuevos
    (codigoBarras en productos, datos de empresa/logo en settings, sucursales) sin
-   perder la información ya cargada por el usuario. */
+   perder la información ya cargada por el usuario. LEGACY_DEMO_EMAILS ahora está
+   declarada más arriba en el archivo (ver nota junto a "let STORE = loadStore();"). */
 
 function migrateStore(store) {
   store.products = (store.products || []).map((p) => ({ codigoBarras: "", ...p }));
@@ -3071,7 +3078,7 @@ function renderEncargados() {
 async function toggleEncargado(encargadoUid, disabled) {
   const idToken = await getIdTokenSafe();
   try {
-    const res = await fetch("/api/disable-encargado", {
+    const res = await fetch(`${API_BASE}/api/disable-encargado`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
       body: JSON.stringify({ uid: encargadoUid, disabled })
@@ -3123,13 +3130,7 @@ function generarPasswordTemporal() {
    WhatsApp/email del propio Administrador con todo precargado. */
 function openInviteModal({ nombre, email, sucursalId, password, telefono }) {
   const sucursal = sucursalName(sucursalId);
-  // FIX: usar window.location.origin + "/login.html" asumía que login.html
-  // vive en la raíz del dominio. En GitHub Pages tu sitio real vive en una
-  // subcarpeta (miguel-coronell.github.io/Boxly/app/...), así que esa cuenta
-  // daba un link roto. Con new URL(..., window.location.href) se resuelve
-  // relativo a la página actual y funciona igual en GitHub Pages, en Vercel,
-  // o en local — sin importar en qué carpeta esté corriendo.
-  const loginUrl = new URL("login.html", window.location.href).href;
+  const loginUrl = `${window.location.origin}/login.html`;
   const lineaPassword = password
     ? `Contraseña temporal: ${password} (te va a pedir cambiarla en tu primer ingreso)`
     : `Usá la contraseña temporal que te compartieron antes, o tocá "¿Olvidaste tu contraseña?" en el login para generar una nueva.`;
@@ -3157,7 +3158,7 @@ async function createEncargado({ nombre, email, password, sucursalId, telefono }
   renderEncargados();
 
   try {
-    const res = await fetch("/api/create-encargado", {
+    const res = await fetch(`${API_BASE}/api/create-encargado`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
