@@ -48,11 +48,27 @@ module.exports = async function handler(req, res) {
     });
 
     const negociosSnap = await db.collection("negocios").get();
-    for (const negocioDoc of negociosSnap.docs) {
-      const sucursalesSnap = await db.collection("negocios").doc(negocioDoc.id).collection("sucursales").get();
+    const negociosIds = new Set(negociosSnap.docs.map((d) => d.id));
+
+    // FIX: si el documento negocios/{id} nunca se creó formalmente (solo se
+    // crearon sucursales adentro con .add()), Firestore no lo devuelve en
+    // negocios.get() — pero la subcolección igual existe y es válida. Con
+    // collectionGroup buscamos TODAS las sucursales de toda la base, sin
+    // depender de que el "padre" exista.
+    const todasSucursalesSnap = await db.collectionGroup("sucursales").get();
+    const sucursalesPorNegocio = {};
+    todasSucursalesSnap.forEach((doc) => {
+      const negocioId = doc.ref.parent.parent ? doc.ref.parent.parent.id : "(sin padre)";
+      if (!sucursalesPorNegocio[negocioId]) sucursalesPorNegocio[negocioId] = [];
+      sucursalesPorNegocio[negocioId].push({ id: doc.id, nombre: doc.data().nombre || null });
+    });
+
+    const todosLosNegocioIds = new Set([...negociosIds, ...Object.keys(sucursalesPorNegocio)]);
+    for (const negocioId of todosLosNegocioIds) {
       resultado.negocios.push({
-        negocioId: negocioDoc.id,
-        sucursales: sucursalesSnap.docs.map((s) => ({ id: s.id, nombre: s.data().nombre || null }))
+        negocioId,
+        negocioDocExiste: negociosIds.has(negocioId),
+        sucursales: sucursalesPorNegocio[negocioId] || []
       });
     }
 
