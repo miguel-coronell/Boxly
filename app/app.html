@@ -86,6 +86,11 @@
         <span class="sidebar-label">Alertas</span>
         <span id="sidebarAlertBadge" class="sidebar-badge">0</span>
       </button>
+      <button class="sidebar-link" data-target="traslados">
+        <i data-lucide="truck" class="h-4 w-4"></i>
+        <span class="sidebar-label">Traslados</span>
+        <span id="sidebarTrasladosBadge" class="sidebar-badge hidden">0</span>
+      </button>
       <button id="sidebarUsuariosLink" class="sidebar-link admin-only" data-target="usuarios">
         <i data-lucide="users" class="h-4 w-4"></i><span class="sidebar-label">Usuarios</span>
       </button>
@@ -362,7 +367,7 @@
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th><th>Registrado por</th></tr>
                 </thead>
                 <tbody id="entradasHistoryBody"></tbody>
               </table>
@@ -413,7 +418,7 @@
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th><th>Registrado por</th></tr>
                 </thead>
                 <tbody id="salidasHistoryBody"></tbody>
               </table>
@@ -432,6 +437,7 @@
               <input id="inventarioSearch" type="text" placeholder="Buscar en inventario..." class="bg-transparent outline-none text-sm w-full">
             </div>
             <div class="flex items-center gap-2">
+              <select id="inventarioSucursalFilter" class="filter-select"></select>
               <select id="inventarioStatusFilter" class="filter-select">
                 <option value="">Todos los estados</option>
                 <option value="ok">OK</option>
@@ -533,6 +539,7 @@
               <label class="checkbox-chip"><input type="checkbox" id="colCategoria" checked>Categoría</label>
               <label class="checkbox-chip"><input type="checkbox" id="colCantidad" checked>Cantidad</label>
               <label class="checkbox-chip"><input type="checkbox" id="colNota" checked>Nota</label>
+              <label class="checkbox-chip"><input type="checkbox" id="colRegistradoPor" checked>Registrado por</label>
             </div>
 
             <div class="flex items-center justify-between mt-4 flex-wrap gap-3">
@@ -552,7 +559,7 @@
             <div class="overflow-x-auto mt-3">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Sucursal</th><th>Tipo</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Nota</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Tipo</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Nota</th><th>Registrado por</th></tr>
                 </thead>
                 <tbody id="repMovementsBody"></tbody>
               </table>
@@ -608,6 +615,101 @@
           <div class="panel-header"><p class="panel-title">Alertas de stock</p></div>
           <div id="alertsList" class="mt-2 space-y-3"></div>
           <p id="alertsEmptyState" class="empty-state hidden">¡Todo en orden! No hay alertas activas.</p>
+        </div>
+      </section>
+
+      <!-- ============ TRASLADOS ============ -->
+      <section id="section-traslados" class="app-section">
+        <div class="grid lg:grid-cols-5 gap-5">
+          <div class="panel lg:col-span-2 admin-only" id="panelNuevoTraslado">
+            <div class="panel-header"><p class="panel-title">Nuevo traslado entre sucursales</p></div>
+            <p class="text-xs text-slate-400 mt-1">Solo el Administrador genera remisiones. El stock recién se descuenta de la sucursal de origen cuando la sucursal destino confirme la recepción física.</p>
+            <form id="trasladoForm" class="movement-form">
+              <label class="form-label">Sucursal origen (envía)</label>
+              <select id="trasladoOrigen" class="form-input" required></select>
+              <label class="form-label">Sucursal destino (recibe)</label>
+              <select id="trasladoDestino" class="form-input" required></select>
+
+              <label class="form-label">Escanear o buscar (SKU / código de barras)</label>
+              <div class="scan-row">
+                <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                <input id="trasladoScan" type="text" class="scan-input" placeholder="Escaneá el producto o escribí el código y presioná Enter" autocomplete="off">
+                <button type="button" id="trasladoScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
+                  <i data-lucide="camera" class="h-4 w-4"></i>
+                </button>
+              </div>
+              <p class="scan-hint">Cada producto escaneado se agrega a la lista de abajo. Si no tenés lector, buscalo manualmente.</p>
+
+              <label class="form-label">Agregar manualmente</label>
+              <div class="flex gap-2">
+                <select id="trasladoProductoManual" class="form-input" style="flex:1"></select>
+                <button type="button" id="trasladoAgregarManual" class="btn-secondary shrink-0" aria-label="Agregar producto">
+                  <i data-lucide="plus" class="h-4 w-4"></i>
+                </button>
+              </div>
+
+              <label class="form-label">Productos del remito</label>
+              <div class="overflow-x-auto">
+                <table class="app-table">
+                  <thead><tr><th>Producto</th><th>Stock en origen</th><th style="width:110px">Cantidad</th><th></th></tr></thead>
+                  <tbody id="trasladoItemsBody"></tbody>
+                </table>
+              </div>
+              <p id="trasladoItemsEmpty" class="empty-state">Todavía no agregaste productos al remito.</p>
+
+              <label class="form-label">Nota (opcional)</label>
+              <input id="trasladoNota" type="text" class="form-input" placeholder="Ej: Reposición semanal">
+
+              <button type="submit" class="btn-primary w-full justify-center mt-2">
+                <i data-lucide="truck" class="h-4 w-4"></i>
+                Generar remisión
+              </button>
+            </form>
+          </div>
+
+          <div class="panel lg:col-span-3">
+            <div class="panel-header"><p class="panel-title">Remitos de traslado</p></div>
+            <div class="overflow-x-auto mt-2">
+              <table class="app-table">
+                <thead><tr><th>Remisión</th><th>Fecha</th><th>Origen</th><th>Destino</th><th>Estado</th><th>Creado por</th><th class="text-right">Acciones</th></tr></thead>
+                <tbody id="trasladosTableBody"></tbody>
+              </table>
+            </div>
+            <p id="trasladosEmptyState" class="empty-state hidden">Todavía no se generaron traslados.</p>
+          </div>
+
+          <!-- Recepción de un traslado puntual: se muestra al tocar "Recibir" en la tabla de arriba. -->
+          <div class="panel lg:col-span-5 hidden" id="panelRecibirTraslado">
+            <div class="panel-header">
+              <p class="panel-title">Confirmar recepción — <span id="recibirTrasladoNumero"></span></p>
+              <button type="button" id="cerrarRecibirTraslado" class="btn-secondary">
+                <i data-lucide="x" class="h-4 w-4"></i> Cerrar
+              </button>
+            </div>
+            <p class="text-sm text-slate-500 mt-1" id="recibirTrasladoResumen"></p>
+
+            <label class="form-label">Escanear o buscar (SKU / código de barras) para contar</label>
+            <div class="scan-row">
+              <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
+              <input id="recibirScan" type="text" class="scan-input" placeholder="Escaneá cada unidad recibida o escribí el código y presioná Enter" autocomplete="off">
+              <button type="button" id="recibirScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
+                <i data-lucide="camera" class="h-4 w-4"></i>
+              </button>
+            </div>
+            <p class="scan-hint">Cada escaneo suma 1 unidad al producto correspondiente. Si no tenés lector, cargá la cantidad recibida a mano en la tabla.</p>
+
+            <div class="overflow-x-auto mt-3">
+              <table class="app-table">
+                <thead><tr><th>Producto</th><th>SKU</th><th>Enviado</th><th style="width:130px">Recibido (físico)</th><th>Motivo de la diferencia</th></tr></thead>
+                <tbody id="recibirItemsBody"></tbody>
+              </table>
+            </div>
+
+            <button type="button" id="confirmarRecepcionBtn" class="btn-primary w-full justify-center mt-4">
+              <i data-lucide="check-check" class="h-4 w-4"></i>
+              Confirmar recepción y actualizar stock
+            </button>
+          </div>
         </div>
       </section>
 

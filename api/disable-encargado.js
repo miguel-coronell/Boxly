@@ -1,16 +1,28 @@
 /**
  * /api/disable-encargado.js
  * =============================================================================
- * Deshabilita (o reactiva) el acceso de un encargado de sucursal.
+ * Deshabilita, reactiva o elimina definitivamente a un encargado de sucursal
+ * DE TU PROPIO NEGOCIO (para dar de baja cuentas de otros negocios existe
+ * /api/admin-manage-account.js, que es la herramienta de soporte de la cuenta
+ * creadora — este endpoint es el de uso normal del día a día del Administrador
+ * sobre sus propios encargados).
  *
  * create-encargado.js ya dejaba anotado que quitar un encargado de la lista
- * en el panel no borraba su usuario real de Firebase Auth — este endpoint
- * es esa pieza que faltaba: usa el Admin SDK para deshabilitar el login
- * (admin.auth().updateUser(uid, { disabled: true })) y marca su perfil en
- * Firestore como inactivo, sin tocar la sesión de nadie más.
+ * en el panel no borraba su usuario real de Firebase Auth — este endpoint es
+ * esa pieza que faltaba, con tres acciones posibles:
+ *   - "disable": bloquea el login (admin.auth().updateUser(uid,{disabled:true}))
+ *     y marca el perfil como inactivo en Firestore. No borra nada — el
+ *     encargado se puede reactivar después.
+ *   - "enable": lo contrario de "disable".
+ *   - "delete": baja definitiva y no reversible. Borra el usuario de Firebase
+ *     Auth y su documento en Firestore. Ojo: esto es DISTINTO de deshabilitar
+ *     — una vez eliminado, habría que volver a crear al encargado desde cero
+ *     con create-encargado.js si hace falta que vuelva a entrar.
  *
- * Body esperado: { uid: "<uid del encargado>", disabled: true|false }
- * Requiere el mismo Authorization: Bearer <idToken> del Administrador.
+ * Body esperado: { uid: "<uid del encargado>", action: "disable"|"enable"|"delete" }
+ * (por compatibilidad también acepta el formato viejo { uid, disabled: true|false }
+ * cuando no se manda "action").
+ * Requiere Authorization: Bearer <idToken> del Administrador dueño del negocio.
  * =============================================================================
  */
 
@@ -56,24 +68,44 @@ module.exports = async function handler(req, res) {
     const callerDoc = await db.collection("users").doc(callerUid).get();
     const callerData = callerDoc.exists ? callerDoc.data() : null;
     if (!callerData || !ADMIN_ROLES.includes(callerData.rol)) {
-      return res.status(403).json({ error: "Solo un Administrador puede deshabilitar encargados." });
+      return res.status(403).json({ error: "Solo un Administrador puede administrar encargados." });
     }
     const negocioId = callerData.negocioId || callerUid;
 
-    const { uid, disabled } = req.body || {};
+    const body = req.body || {};
+    const { uid } = body;
+    // Compatibilidad: si no viene "action", se infiere de "disabled" (formato viejo).
+    const action = body.action || (typeof body.disabled === "boolean" ? (body.disabled ? "disable" : "enable") : null);
+
     if (!uid || typeof uid !== "string") {
       return res.status(400).json({ error: "Falta el uid del encargado." });
     }
+    if (!["disable", "enable", "delete"].includes(action)) {
+      return res.status(400).json({ error: "Acción inválida. Usá disable, enable o delete." });
+    }
 
     // Confirmamos que el encargado pertenece al negocio de quien llama —
-    // un Administrador no puede deshabilitar encargados de otro negocio.
-    const encargadoDoc = await db.collection("users").doc(uid).get();
-    if (!encargadoDoc.exists || encargadoDoc.data().negocioId !== negocioId) {
+    // un Administrador no puede tocar encargados de otro negocio — y que la
+    // cuenta objetivo es realmente un encargado (no se puede usar esto para
+    // tocar la cuenta de otro Administrador).
+    const encargadoRef = db.collection("users").doc(uid);
+    const encargadoDoc = await encargadoRef.get();
+    if (!encargadoDoc.exists || encargadoDoc.data().negocioId !== negocioId || encargadoDoc.data().rol !== "encargado") {
       return res.status(403).json({ error: "Ese encargado no pertenece a tu negocio." });
     }
 
-    await admin.auth().updateUser(uid, { disabled: !!disabled });
-    await db.collection("users").doc(uid).set({ activo: !disabled }, { merge: true });
+    if (action === "delete") {
+      await admin.auth().deleteUser(uid).catch((err) => {
+        // Si ya no existe en Auth (borrado a mano antes), seguimos igual con Firestore.
+        if (err.code !== "auth/user-not-found") throw err;
+      });
+      await encargadoRef.delete();
+      return res.status(200).json({ ok: true });
+    }
+
+    const disabled = action === "disable";
+    await admin.auth().updateUser(uid, { disabled });
+    await encargadoRef.set({ activo: !disabled }, { merge: true });
 
     return res.status(200).json({ ok: true });
   } catch (err) {

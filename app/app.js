@@ -125,6 +125,8 @@ let unsubscribeProductos = null;
 let unsubscribeMovimientos = null;
 let unsubscribeSucursales = null;
 let unsubscribeEncargados = null;
+let unsubscribeTrasladosOrigen = null;
+let unsubscribeTrasladosDestino = null;
 
 function iniciarSincronizacionFirestore() {
   if (!isFirebaseReady() || !CURRENT_USER) return;
@@ -142,6 +144,7 @@ function iniciarSincronizacionFirestore() {
       suscribirSucursalesFirestore(db);
       suscribirNegocioFirestore(db);
       suscribirEncargadosFirestore(db);
+      suscribirTrasladosFirestore(db);
       // El Panel Creador (que escuchaba TODOS los negocios de Boxly) se sacó:
       // la cuenta creadora ahora funciona como un Administrador normal, con
       // plan ilimitado (ver isCreatorAccount() en getPlanLimits()), sin una
@@ -165,6 +168,7 @@ function suscribirProductosFirestore(db, _retried) {
         STORE.products = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         renderProductos();
         renderDashboard();
+        renderTraslados();
       },
       (err) => {
         console.error("Error escuchando productos en Firestore.", err);
@@ -287,6 +291,55 @@ function suscribirSucursalesFirestore(db, _retried) {
       }
     );
 }
+
+/* Traslados: mismo problema que ya se resolvió en movimientos, pero con dos
+   campos de sucursal en vez de uno (sucursalOrigenId / sucursalDestinoId).
+   Un encargado puede necesitar ver un traslado tanto si su sucursal es el
+   ORIGEN (para saber que ya salió mercadería) como si es el DESTINO (para
+   recibirlo) — y las reglas exigen que la query venga filtrada por uno de
+   los dos, o Firestore deniega el listado completo. El SDK compat no permite
+   un OR directo entre dos campos distintos, así que se arman dos listeners
+   (uno por cada campo) y se combinan en un mismo Map por id. Para el
+   Administrador alcanza con un único listener sin filtrar: ve todo su negocio. */
+function suscribirTrasladosFirestore(db, _retried) {
+  if (unsubscribeTrasladosOrigen) unsubscribeTrasladosOrigen();
+  if (unsubscribeTrasladosDestino) unsubscribeTrasladosDestino();
+  const sucursalFija = currentUserSucursalId();
+  const coleccion = db.collection("negocios").doc(NEGOCIO_ID).collection("traslados");
+
+  function onError(err) {
+    console.error("Error escuchando traslados en Firestore.", err);
+    if (err.code === "permission-denied" && !_retried) {
+      setTimeout(() => suscribirTrasladosFirestore(db, true), 1500);
+      return;
+    }
+    showToast("No se pudieron sincronizar los traslados. Revisá tu conexión.", "error");
+  }
+
+  if (!sucursalFija) {
+    unsubscribeTrasladosOrigen = coleccion.onSnapshot((snapshot) => {
+      STORE.traslados = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      renderTraslados();
+    }, onError);
+    return;
+  }
+
+  const mapa = new Map();
+  function actualizar() {
+    STORE.traslados = Array.from(mapa.values());
+    renderTraslados();
+  }
+  function aplicarCambios(snapshot) {
+    snapshot.docChanges().forEach((change) => {
+      if (change.type === "removed") mapa.delete(change.doc.id);
+      else mapa.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
+    });
+    actualizar();
+  }
+  unsubscribeTrasladosOrigen = coleccion.where("sucursalOrigenId", "==", sucursalFija).onSnapshot(aplicarCambios, onError);
+  unsubscribeTrasladosDestino = coleccion.where("sucursalDestinoId", "==", sucursalFija).onSnapshot(aplicarCambios, onError);
+}
+
 
 /* Paso 6D (configuración) + Paso 6E (plan/trial): un solo listener sobre el documento
    negocios/{NEGOCIO_ID}, porque ahí viven tanto los datos de "Configuración" como
@@ -814,6 +867,7 @@ function seedEmptyData() {
     products: [],
     movements: [],
     users: [],
+    traslados: [],
     sucursales: [{ id: "s1", nombre: "Casa Central", direccion: "" }],
     settings: {
       nombreNegocio: "Mi negocio",
@@ -884,7 +938,7 @@ function seedData() {
 
   const encargados = [];
 
-  return { products, movements, users, sucursales, settings, encargados };
+  return { products, movements, users, sucursales, settings, encargados, traslados: [] };
 }
 
 /* URL de producción de las funciones serverless en Vercel. La app corre en
@@ -995,6 +1049,15 @@ function syncCurrentUserFromFirestore(userDocData) {
 
 function currentUserRecord() {
   return CURRENT_USER ? STORE.users.find((u) => u.uid === CURRENT_USER.uid) : null;
+}
+/* Nombre a guardar como "quién hizo esto" en movimientos/traslados — usa el
+   nombre ya sincronizado desde Firestore (STORE.users) y, si todavía no está
+   disponible, el nombre con el que se inició sesión. Así tanto el Administrador
+   como cada encargado quedan identificados por su nombre real en cada entrada,
+   salida o traslado que registren. */
+function nombreUsuarioActual() {
+  const u = currentUserRecord();
+  return (u && u.nombre) || (CURRENT_USER && CURRENT_USER.nombre) || "Usuario";
 }
 function isCurrentUserAdmin() {
   const u = currentUserRecord();
@@ -1119,6 +1182,7 @@ function migrateStore(store) {
   store.users = store.users.map((u) => ({ sucursalId: defaultSucursalId, uid: null, isOwner: false, ...u }));
 
   store.encargados = store.encargados || [];
+  store.traslados = store.traslados || [];
 
   return store;
 }
@@ -1325,6 +1389,7 @@ const SECTION_META = {
   inventario: { title: "Inventario", subtitle: "Vista completa del estado de tu stock." },
   reportes: { title: "Reportes", subtitle: "Métricas clave de tu inventario." },
   alertas: { title: "Alertas", subtitle: "Productos que necesitan tu atención." },
+  traslados: { title: "Traslados", subtitle: "Remisiones y traslados de stock entre sucursales." },
   usuarios: { title: "Usuarios", subtitle: "Administrá quién accede a tu cuenta." },
   sucursales: { title: "Sucursales", subtitle: "Administrá las sucursales de tu negocio." },
   "mi-plan": { title: "Mi Plan", subtitle: "Tu suscripción, límites de uso y facturación." },
@@ -1366,6 +1431,7 @@ function renderSection(target) {
     case "inventario": renderInventario(); break;
     case "reportes": renderReportes(); break;
     case "alertas": renderAlertas(); break;
+    case "traslados": renderTraslados(); break;
     case "usuarios": renderUsuarios(); break;
     case "sucursales": renderSucursales(); break;
     case "mi-plan": renderMiPlan(); break;
@@ -1549,8 +1615,14 @@ function renderDashboard() {
   renderDonut(document.getElementById("donutChart"), document.getElementById("donutLegend"), categoria, sucursalId);
 
   const filteredMovements = getFilteredDashboardMovements();
-  const purchases = filteredMovements.filter((m) => m.tipo === "entrada").reduce((sum, m) => sum + m.cantidad, 0);
-  const sales = filteredMovements.filter((m) => m.tipo === "salida").reduce((sum, m) => sum + m.cantidad, 0);
+  // esTraslado: los movimientos que genera un traslado entre sucursales (ver
+  // confirmarRecepcionTraslado / /api/confirmar-traslado.js) quedan en el
+  // historial de entradas/salidas para que se pueda auditar todo, pero NO son
+  // compras ni ventas reales — son la misma mercadería cambiando de sucursal
+  // dentro del mismo negocio — así que se excluyen de estos KPIs para no
+  // inflarlos artificialmente.
+  const purchases = filteredMovements.filter((m) => m.tipo === "entrada" && !m.esTraslado).reduce((sum, m) => sum + m.cantidad, 0);
+  const sales = filteredMovements.filter((m) => m.tipo === "salida" && !m.esTraslado).reduce((sum, m) => sum + m.cantidad, 0);
   animateValue(document.getElementById("statPurchases"), purchases);
   animateValue(document.getElementById("statSales"), sales);
 
@@ -1558,10 +1630,10 @@ function renderDashboard() {
   // movimiento (cantidad * precio unitario del producto al momento del movimiento,
   // ver registerMovement) y se formatean con Intl.NumberFormat vía formatCurrency().
   const purchasesAmount = filteredMovements
-    .filter((m) => m.tipo === "entrada")
+    .filter((m) => m.tipo === "entrada" && !m.esTraslado)
     .reduce((sum, m) => sum + (m.montoTotal || 0), 0);
   const salesAmount = filteredMovements
-    .filter((m) => m.tipo === "salida")
+    .filter((m) => m.tipo === "salida" && !m.esTraslado)
     .reduce((sum, m) => sum + (m.montoTotal || 0), 0);
   document.getElementById("statPurchasesAmount").textContent = formatCurrency(purchasesAmount);
   document.getElementById("statSalesAmount").textContent = formatCurrency(salesAmount);
@@ -1612,8 +1684,37 @@ function renderDashboard() {
   updateAlertBadges();
 }
 
+/* Compartida entre renderAlertas() y updateAlertBadges() — antes cada una
+   calculaba las alertas de stock bajo con su propia lógica, y quedaron
+   desincronizadas: la campanita contaba PRODUCTOS DISTINTOS en alerta
+   (productStatus(p), que para el Administrador usa el stock TOTAL del
+   negocio), mientras que la lista de Alertas ya mostraba una fila POR CADA
+   SUCURSAL en alerta. Resultado: la campanita podía decir "1" cuando la
+   lista de abajo mostraba 2 (mismo producto, bajo en dos sucursales
+   distintas). Ahora las dos usan exactamente el mismo cálculo. */
+function calcularAlertasStock() {
+  const sucursalFija = currentUserSucursalId();
+  const alerts = [];
+  if (sucursalFija) {
+    STORE.products.forEach((p) => {
+      if (productStatusFor(p, sucursalFija) !== "ok") {
+        alerts.push({ product: p, sucursalId: sucursalFija });
+      }
+    });
+  } else {
+    STORE.products.forEach((p) => {
+      STORE.sucursales.forEach((s) => {
+        if (productStatusFor(p, s.id) !== "ok") {
+          alerts.push({ product: p, sucursalId: s.id });
+        }
+      });
+    });
+  }
+  return alerts;
+}
+
 function updateAlertBadges() {
-  const count = STORE.products.filter((p) => productStatus(p) !== "ok").length;
+  const count = calcularAlertasStock().length;
   document.getElementById("sidebarAlertBadge").textContent = count;
   document.getElementById("notifBadge").textContent = count;
   document.getElementById("sidebarAlertBadge").style.display = count ? "inline-flex" : "none";
@@ -1697,8 +1798,8 @@ function initDashboardFirestoreSync() {
 
         // A partir de acá, todo es el mismo cálculo que ya hace renderDashboard(),
         // pero con los datos que llegaron en vivo de Firestore en vez de STORE.movements:
-        const purchases = movimientos.filter((m) => m.tipo === "entrada").reduce((sum, m) => sum + m.cantidad, 0);
-        const sales = movimientos.filter((m) => m.tipo === "salida").reduce((sum, m) => sum + m.cantidad, 0);
+        const purchases = movimientos.filter((m) => m.tipo === "entrada" && !m.esTraslado).reduce((sum, m) => sum + m.cantidad, 0);
+        const sales = movimientos.filter((m) => m.tipo === "salida" && !m.esTraslado).reduce((sum, m) => sum + m.cantidad, 0);
         animateValue(document.getElementById("statPurchases"), purchases);
         animateValue(document.getElementById("statSales"), sales);
 
@@ -1929,11 +2030,22 @@ function populateCategorySelect(selectEl) {
   if (categories.includes(current)) selectEl.value = current;
 }
 
-function populateProductSelect(selectEl, categoria) {
+/* FIX: antes esto siempre mostraba stockVisible(p) — para el Administrador,
+   el TOTAL sumado de todas las sucursales, sin importar qué sucursal haya
+   elegido en el formulario. Un Administrador registrando una entrada en
+   "Depósito #1" veía "(stock: 41)" cuando en realidad esa sucursal puntual
+   tenía 0 — el 41 era la suma de todo el negocio. Ahora, si se pasa
+   sucursalId, se muestra el stock REAL de esa sucursal puntual. */
+function populateProductSelect(selectEl, categoria, sucursalId) {
   const current = selectEl.value;
   const list = STORE.products.filter((p) => !categoria || p.categoria === categoria);
   selectEl.innerHTML = list.length
-    ? list.map((p) => `<option value="${p.id}">${p.nombre} · ${p.sku} · ${p.categoria} (stock: ${stockVisible(p)})</option>`).join("")
+    ? list
+        .map((p) => {
+          const stockMostrado = sucursalId ? stockDeSucursal(p, sucursalId) : stockVisible(p);
+          return `<option value="${p.id}">${p.nombre} · ${p.sku} · ${p.categoria} (stock: ${stockMostrado})</option>`;
+        })
+        .join("")
     : `<option value="">No hay productos en esta categoría</option>`;
   if (list.some((p) => p.id === current)) selectEl.value = current;
 }
@@ -1967,6 +2079,7 @@ function renderMovementHistory(tipo, tbodyId, emptyId) {
         <td class="font-medium text-ink">${product ? product.nombre : "Producto eliminado"}</td>
         <td class="font-mono ${tipo === "entrada" ? "text-greendark" : "text-red-500"}">${tipo === "entrada" ? "+" : "−"}${m.cantidad}</td>
         <td class="text-slate-400">${m.nota || "—"}</td>
+        <td class="text-slate-400">${m.creadoPorNombre || "—"}</td>
       </tr>`;
     })
     .join("");
@@ -1977,7 +2090,7 @@ function renderEntradas() {
   populateSucursalSelect(document.getElementById("entradaSucursal"));
   const categoriaFiltro = document.getElementById("entradaCategoriaFiltro");
   populateCategorySelect(categoriaFiltro);
-  populateProductSelect(document.getElementById("entradaProducto"), categoriaFiltro.value);
+  populateProductSelect(document.getElementById("entradaProducto"), categoriaFiltro.value, document.getElementById("entradaSucursal").value);
   renderMovementHistory("entrada", "entradasHistoryBody", "entradasEmptyState");
 }
 
@@ -1985,15 +2098,25 @@ function renderSalidas() {
   populateSucursalSelect(document.getElementById("salidaSucursal"));
   const categoriaFiltro = document.getElementById("salidaCategoriaFiltro");
   populateCategorySelect(categoriaFiltro);
-  populateProductSelect(document.getElementById("salidaProducto"), categoriaFiltro.value);
+  populateProductSelect(document.getElementById("salidaProducto"), categoriaFiltro.value, document.getElementById("salidaSucursal").value);
   renderMovementHistory("salida", "salidasHistoryBody", "salidasEmptyState");
 }
 
 document.getElementById("entradaCategoriaFiltro").addEventListener("change", (e) => {
-  populateProductSelect(document.getElementById("entradaProducto"), e.target.value);
+  populateProductSelect(document.getElementById("entradaProducto"), e.target.value, document.getElementById("entradaSucursal").value);
 });
 document.getElementById("salidaCategoriaFiltro").addEventListener("change", (e) => {
-  populateProductSelect(document.getElementById("salidaProducto"), e.target.value);
+  populateProductSelect(document.getElementById("salidaProducto"), e.target.value, document.getElementById("salidaSucursal").value);
+});
+// FIX: cuando el Administrador cambia la sucursal del movimiento, el stock que
+// se muestra al lado de cada producto tiene que actualizarse también — antes
+// se quedaba pegado al stock de la sucursal que estuviera seleccionada al
+// momento de entrar a la pantalla (o al total, si no se había tocado nada).
+document.getElementById("entradaSucursal").addEventListener("change", (e) => {
+  populateProductSelect(document.getElementById("entradaProducto"), document.getElementById("entradaCategoriaFiltro").value, e.target.value);
+});
+document.getElementById("salidaSucursal").addEventListener("change", (e) => {
+  populateProductSelect(document.getElementById("salidaProducto"), document.getElementById("salidaCategoriaFiltro").value, e.target.value);
 });
 
 function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, sucursalSelectId) {
@@ -2048,7 +2171,14 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
           stock: nuevoStockTotal,
           [`stockPorSucursal.${sucursalId}`]: nuevoStockSucursal
         });
-        transaction.set(movimientoRef, { tipo, productId, cantidad, nota, sucursalId, montoTotal, fecha: new Date().toISOString() });
+        // creadoPorUid/creadoPorNombre: quién hizo el movimiento (Administrador o
+        // encargado), para que cualquiera que mire el historial sepa quién lo cargó.
+        transaction.set(movimientoRef, {
+          tipo, productId, cantidad, nota, sucursalId, montoTotal,
+          creadoPorUid: CURRENT_USER.uid,
+          creadoPorNombre: nombreUsuarioActual(),
+          fecha: new Date().toISOString()
+        });
       });
     })
       .then(() => {
@@ -2084,7 +2214,12 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
   // Es la base que usa el dashboard (Requerimiento 3) para sumar "Compras totales" y
   // "Ventas totales" en moneda, en vez de solo unidades.
   const montoTotal = cantidad * (product.precio || 0);
-  STORE.movements.push({ id: uid("m"), tipo, productId, cantidad, nota, sucursalId, montoTotal, fecha: new Date().toISOString() });
+  STORE.movements.push({
+    id: uid("m"), tipo, productId, cantidad, nota, sucursalId, montoTotal,
+    creadoPorUid: CURRENT_USER.uid,
+    creadoPorNombre: nombreUsuarioActual(),
+    fecha: new Date().toISOString()
+  });
   saveStore();
 
   document.getElementById(formId).reset();
@@ -2211,16 +2346,628 @@ function openCameraScanner(onDecoded) {
 }
 
 /* =========================================================================
+   TRASLADOS ENTRE SUCURSALES (remisiones)
+   =========================================================================
+   Solo el Administrador genera remisiones (crearTraslado). El stock de la
+   sucursal de ORIGEN recién se descuenta cuando la sucursal DESTINO confirma
+   la recepción física (confirmarRecepcionTraslado) — hasta ese momento el
+   traslado queda "pendiente" y no mueve ni una unidad de stock. Si lo
+   recibido no coincide con lo enviado, la diferencia queda anotada en el
+   remito con el motivo que cargue quien recibe (rotura, pérdida, etc.), pero
+   igual se descuenta del origen lo que salió y se suma al destino solo lo
+   que realmente llegó.
+
+   La confirmación de recepción NO se hace directo contra Firestore desde acá:
+   cuando quien confirma es el encargado de la sucursal DESTINO, hace falta
+   tocar el stock de la sucursal ORIGEN (que no es la suya), y las reglas de
+   Firestore a propósito no dejan que un encargado edite el stock de una
+   sucursal ajena (ver firestore.rules). Por eso esa parte vive en
+   /api/confirmar-traslado.js, con el Admin SDK, que valida a mano que quien
+   llama es el Administrador o el encargado de esa sucursal destino puntual.
+   ========================================================================= */
+
+/* Ítems que se van armando en el formulario de "Nuevo traslado" antes de
+   generar la remisión. Se resetea cada vez que se abre/limpia la sección. */
+let TRASLADO_ITEMS = [];
+
+function trasladosVisibles() {
+  // Ya vienen filtrados por sucursal desde suscribirTrasladosFirestore() (o,
+  // en modo demo, no hace falta filtrar: el demo siempre corre como Admin).
+  return [...STORE.traslados].sort((a, b) => new Date(b.fechaCreacion) - new Date(a.fechaCreacion));
+}
+
+function populateTrasladoSucursalSelects() {
+  const origenSelect = document.getElementById("trasladoOrigen");
+  const destinoSelect = document.getElementById("trasladoDestino");
+  if (!origenSelect || !destinoSelect) return;
+  const opciones = STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+  const curOrigen = origenSelect.value;
+  const curDestino = destinoSelect.value;
+  origenSelect.innerHTML = opciones;
+  destinoSelect.innerHTML = opciones;
+  if (STORE.sucursales.some((s) => s.id === curOrigen)) origenSelect.value = curOrigen;
+  if (STORE.sucursales.some((s) => s.id === curDestino)) destinoSelect.value = curDestino;
+  // Si hay más de una sucursal, evitamos que origen y destino arranquen
+  // apuntando a la misma por accidente.
+  if (STORE.sucursales.length > 1 && destinoSelect.value === origenSelect.value) {
+    const otra = STORE.sucursales.find((s) => s.id !== origenSelect.value);
+    if (otra) destinoSelect.value = otra.id;
+  }
+}
+
+function renderTrasladoItemsTable() {
+  const tbody = document.getElementById("trasladoItemsBody");
+  const empty = document.getElementById("trasladoItemsEmpty");
+  if (!tbody) return;
+  const origenId = document.getElementById("trasladoOrigen").value;
+
+  tbody.innerHTML = TRASLADO_ITEMS
+    .map((item, idx) => {
+      const p = getProduct(item.productId);
+      const stockOrigen = p ? stockDeSucursal(p, origenId) : 0;
+      return `<tr>
+        <td class="font-medium text-ink">${p ? p.nombre : "Producto eliminado"}</td>
+        <td class="font-mono text-xs text-slate-400">${stockOrigen}</td>
+        <td><input type="number" min="1" step="1" class="form-input" data-traslado-cantidad="${idx}" value="${item.cantidad}" style="padding:0.4rem 0.6rem"></td>
+        <td><button type="button" class="icon-btn danger" data-traslado-quitar="${idx}" aria-label="Quitar"><i data-lucide="trash-2" class="h-4 w-4"></i></button></td>
+      </tr>`;
+    })
+    .join("");
+
+  empty.classList.toggle("hidden", TRASLADO_ITEMS.length > 0);
+  refreshIcons();
+
+  tbody.querySelectorAll("[data-traslado-cantidad]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = parseInt(input.getAttribute("data-traslado-cantidad"), 10);
+      const val = parseInt(input.value, 10);
+      TRASLADO_ITEMS[idx].cantidad = val > 0 ? val : 1;
+      input.value = TRASLADO_ITEMS[idx].cantidad;
+    });
+  });
+  tbody.querySelectorAll("[data-traslado-quitar]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.getAttribute("data-traslado-quitar"), 10);
+      TRASLADO_ITEMS.splice(idx, 1);
+      renderTrasladoItemsTable();
+    });
+  });
+}
+
+function agregarProductoATraslado(productId) {
+  if (!productId) return;
+  const existente = TRASLADO_ITEMS.find((it) => it.productId === productId);
+  if (existente) {
+    existente.cantidad += 1;
+  } else {
+    TRASLADO_ITEMS.push({ productId, cantidad: 1 });
+  }
+  renderTrasladoItemsTable();
+}
+
+function setupTrasladoForm() {
+  const form = document.getElementById("trasladoForm");
+  if (!form) return;
+
+  populateProductSelect(document.getElementById("trasladoProductoManual"), "");
+
+  document.getElementById("trasladoAgregarManual").addEventListener("click", () => {
+    const select = document.getElementById("trasladoProductoManual");
+    agregarProductoATraslado(select.value);
+  });
+
+  document.getElementById("trasladoOrigen").addEventListener("change", () => {
+    if (document.getElementById("trasladoDestino").value === document.getElementById("trasladoOrigen").value) {
+      showToast("El origen y el destino no pueden ser la misma sucursal.", "error");
+    }
+    populateProductSelect(document.getElementById("trasladoProductoManual"), "", document.getElementById("trasladoOrigen").value);
+    renderTrasladoItemsTable();
+  });
+
+  const scanInput = document.getElementById("trasladoScan");
+  scanInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const code = scanInput.value.trim();
+    if (!code) return;
+    const product = findProductByCode(code);
+    if (!product) {
+      showToast(`No se encontró ningún producto con el código ${code}.`, "error");
+      return;
+    }
+    agregarProductoATraslado(product.id);
+    scanInput.value = "";
+    showToast(`Agregado al remito: ${product.nombre}`, "success");
+  });
+  document.getElementById("trasladoScanCam").addEventListener("click", () => {
+    openCameraScanner((decodedText) => {
+      const product = findProductByCode(decodedText);
+      if (!product) {
+        showToast(`No se encontró ningún producto con el código ${decodedText}.`, "error");
+        return;
+      }
+      agregarProductoATraslado(product.id);
+      showToast(`Agregado al remito: ${product.nombre}`, "success");
+    });
+  });
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const sucursalOrigenId = document.getElementById("trasladoOrigen").value;
+    const sucursalDestinoId = document.getElementById("trasladoDestino").value;
+    const nota = document.getElementById("trasladoNota").value.trim();
+
+    if (!sucursalOrigenId || !sucursalDestinoId) {
+      showToast("Elegí sucursal de origen y destino.", "error");
+      return;
+    }
+    if (sucursalOrigenId === sucursalDestinoId) {
+      showToast("El origen y el destino no pueden ser la misma sucursal.", "error");
+      return;
+    }
+    if (!TRASLADO_ITEMS.length) {
+      showToast("Agregá al menos un producto al remito.", "error");
+      return;
+    }
+
+    crearTraslado(sucursalOrigenId, sucursalDestinoId, TRASLADO_ITEMS, nota).then((numero) => {
+      if (!numero) return;
+      TRASLADO_ITEMS = [];
+      form.reset();
+      renderTrasladoItemsTable();
+      populateTrasladoSucursalSelects();
+    });
+  });
+}
+
+/* Genera el número de remisión de forma correlativa (REM-0001, REM-0002, ...)
+   usando un contador guardado en el propio documento negocios/{negocioId} —
+   se incrementa dentro de la misma transacción que crea el traslado, para
+   que dos remisiones creadas casi al mismo tiempo nunca puedan repetir número. */
+function crearTraslado(sucursalOrigenId, sucursalDestinoId, items, nota) {
+  if (!isCurrentUserAdmin()) {
+    showToast("Solo un Administrador puede generar traslados entre sucursales.", "error");
+    return Promise.resolve(null);
+  }
+
+  const productosConNombre = items.map((it) => {
+    const p = getProduct(it.productId);
+    return {
+      productId: it.productId,
+      nombre: p ? p.nombre : "Producto eliminado",
+      sku: p ? p.sku : "",
+      cantidadEnviada: it.cantidad
+    };
+  });
+
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    const db = getFirestoreDb();
+    const negocioRef = db.collection("negocios").doc(NEGOCIO_ID);
+    const trasladoRef = negocioRef.collection("traslados").doc();
+
+    return db.runTransaction((transaction) => {
+      return transaction.get(negocioRef).then((negocioSnap) => {
+        const contadorActual = (negocioSnap.exists && negocioSnap.data().contadorRemisiones) || 0;
+        const siguiente = contadorActual + 1;
+        const numero = `REM-${String(siguiente).padStart(4, "0")}`;
+        // FIX: algunos negocios nunca tienen el documento negocios/{negocioId}
+        // creado formalmente (solo existen sus subcolecciones, como sucursales
+        // — ver la misma nota en diagnostico-temporal.js). transaction.update()
+        // exige que el documento YA exista, así que fallaba con "Can't update a
+        // document that doesn't exist" y el traslado nunca se creaba. set() con
+        // merge:true funciona lo mismo si existe, y además lo crea si no existía.
+        transaction.set(negocioRef, { contadorRemisiones: siguiente }, { merge: true });
+        transaction.set(trasladoRef, {
+          numero,
+          sucursalOrigenId,
+          sucursalDestinoId,
+          sucursalOrigenNombre: sucursalName(sucursalOrigenId),
+          sucursalDestinoNombre: sucursalName(sucursalDestinoId),
+          productos: productosConNombre,
+          nota: nota || "",
+          estado: "pendiente",
+          creadoPorUid: CURRENT_USER.uid,
+          creadoPorNombre: nombreUsuarioActual(),
+          fechaCreacion: new Date().toISOString()
+        });
+        return numero;
+      });
+    })
+      .then((numero) => {
+        showToast(`Remisión ${numero} creada. Queda pendiente de recepción en ${sucursalName(sucursalDestinoId)}.`, "success");
+        return numero;
+      })
+      .catch((err) => {
+        console.error("No se pudo crear el traslado.", err);
+        showToast("No se pudo crear el traslado. Probá de nuevo.", "error");
+        return null;
+      });
+  }
+
+  // ---- Modo demo (sin Firebase) ----
+  STORE.settings.contadorRemisiones = (STORE.settings.contadorRemisiones || 0) + 1;
+  const numero = `REM-${String(STORE.settings.contadorRemisiones).padStart(4, "0")}`;
+  STORE.traslados.push({
+    id: uid("t"),
+    numero,
+    sucursalOrigenId,
+    sucursalDestinoId,
+    sucursalOrigenNombre: sucursalName(sucursalOrigenId),
+    sucursalDestinoNombre: sucursalName(sucursalDestinoId),
+    productos: productosConNombre,
+    nota: nota || "",
+    estado: "pendiente",
+    creadoPorUid: CURRENT_USER.uid,
+    creadoPorNombre: nombreUsuarioActual(),
+    fechaCreacion: new Date().toISOString()
+  });
+  saveStore();
+  renderTraslados();
+  showToast(`Remisión ${numero} creada (modo demo).`, "success");
+  return Promise.resolve(numero);
+}
+
+/* Cancela un traslado que todavía está pendiente. Como el stock no se mueve
+   hasta que el destino confirma, cancelar es seguro: no hay nada que revertir. */
+function cancelarTraslado(trasladoId) {
+  if (!isCurrentUserAdmin()) {
+    showToast("Solo un Administrador puede cancelar un traslado.", "error");
+    return;
+  }
+  if (isFirebaseReady() && NEGOCIO_ID) {
+    const db = getFirestoreDb();
+    db.collection("negocios").doc(NEGOCIO_ID).collection("traslados").doc(trasladoId)
+      .update({ estado: "cancelado" })
+      .then(() => showToast("Traslado cancelado.", "success"))
+      .catch((err) => {
+        console.error("No se pudo cancelar el traslado.", err);
+        showToast("No se pudo cancelar el traslado.", "error");
+      });
+    return;
+  }
+  const t = STORE.traslados.find((x) => x.id === trasladoId);
+  if (t) {
+    t.estado = "cancelado";
+    saveStore();
+    renderTraslados();
+    showToast("Traslado cancelado.", "success");
+  }
+}
+
+const TRASLADO_ESTADO_TAG = {
+  pendiente: `<span class="status-tag status-low">Pendiente</span>`,
+  recibido: `<span class="status-tag status-ok">Recibido</span>`,
+  cancelado: `<span class="status-tag status-critical">Cancelado</span>`
+};
+
+function renderTraslados() {
+  populateTrasladoSucursalSelects();
+  // FIX: antes esto se poblaba una única vez en setupTrasladoForm(), al cargar
+  // la página — si en ese momento STORE.products todavía no había llegado de
+  // Firestore (lo normal, porque es asíncrono), el <select> quedaba vacío para
+  // siempre y "Agregar manualmente" no tenía nada para agregar. Ahora se
+  // repuebla cada vez que se renderiza la sección (cada snapshot de productos
+  // o traslados dispara renderTraslados()), igual que ya hacen Entradas/Salidas.
+  const manualSelect = document.getElementById("trasladoProductoManual");
+  if (manualSelect) populateProductSelect(manualSelect, "", document.getElementById("trasladoOrigen").value);
+  renderTrasladoItemsTable();
+
+  const tbody = document.getElementById("trasladosTableBody");
+  const empty = document.getElementById("trasladosEmptyState");
+  if (!tbody) return;
+
+  const items = trasladosVisibles();
+  const admin = isCurrentUserAdmin();
+  const miSucursal = currentUserSucursalId();
+
+  tbody.innerHTML = items
+    .map((t) => {
+      const puedeRecibir = t.estado === "pendiente" && (admin || miSucursal === t.sucursalDestinoId);
+      const puedeCancelar = t.estado === "pendiente" && admin;
+      const acciones = [
+        puedeRecibir ? `<button class="btn-secondary" data-recibir-traslado="${t.id}"><i data-lucide="package-check" class="h-4 w-4"></i> Recibir</button>` : "",
+        puedeCancelar ? `<button class="icon-btn danger" data-cancelar-traslado="${t.id}" aria-label="Cancelar"><i data-lucide="x-circle" class="h-4 w-4"></i></button>` : ""
+      ].join(" ");
+      return `<tr>
+        <td class="font-mono font-semibold text-ink">${t.numero}</td>
+        <td class="font-mono text-xs text-slate-400">${formatDate(t.fechaCreacion)}</td>
+        <td class="text-slate-500">${t.sucursalOrigenNombre || sucursalName(t.sucursalOrigenId)}</td>
+        <td class="text-slate-500">${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}</td>
+        <td>${TRASLADO_ESTADO_TAG[t.estado] || t.estado}</td>
+        <td class="text-slate-400">${t.creadoPorNombre || "—"}</td>
+        <td class="text-right"><div class="flex justify-end gap-2">${acciones || "—"}</div></td>
+      </tr>`;
+    })
+    .join("");
+
+  empty.classList.toggle("hidden", items.length > 0);
+  refreshIcons();
+
+  tbody.querySelectorAll("[data-recibir-traslado]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirRecepcionTraslado(btn.getAttribute("data-recibir-traslado")));
+  });
+  tbody.querySelectorAll("[data-cancelar-traslado]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const t = items.find((x) => x.id === btn.getAttribute("data-cancelar-traslado"));
+      openConfirmModal(
+        "Cancelar traslado",
+        `¿Seguro que querés cancelar la remisión <strong>${t.numero}</strong>? Como todavía no se descontó stock, no hace falta revertir nada.`,
+        "Cancelar traslado",
+        () => cancelarTraslado(t.id)
+      );
+    });
+  });
+
+  actualizarBadgeTraslados(items);
+}
+
+function actualizarBadgeTraslados(items) {
+  const badge = document.getElementById("sidebarTrasladosBadge");
+  if (!badge) return;
+  const admin = isCurrentUserAdmin();
+  const miSucursal = currentUserSucursalId();
+  const pendientesQueMeTocan = items.filter((t) => t.estado === "pendiente" && (admin ? true : miSucursal === t.sucursalDestinoId));
+  const count = pendientesQueMeTocan.length;
+  badge.textContent = count;
+  badge.classList.toggle("hidden", count === 0);
+}
+
+/* ---------------------------- Recepción de un traslado ---------------------------- */
+let TRASLADO_EN_RECEPCION = null; // { traslado, cantidades: { [productId]: number }, motivos: { [productId]: string } }
+
+function abrirRecepcionTraslado(trasladoId) {
+  const traslado = STORE.traslados.find((t) => t.id === trasladoId);
+  if (!traslado || traslado.estado !== "pendiente") {
+    showToast("Ese traslado ya no está disponible para recibir.", "error");
+    return;
+  }
+  TRASLADO_EN_RECEPCION = {
+    traslado,
+    cantidades: {},
+    motivos: {}
+  };
+  traslado.productos.forEach((p) => { TRASLADO_EN_RECEPCION.cantidades[p.productId] = 0; });
+
+  document.getElementById("recibirTrasladoNumero").textContent = traslado.numero;
+  document.getElementById("recibirTrasladoResumen").textContent =
+    `De ${traslado.sucursalOrigenNombre || sucursalName(traslado.sucursalOrigenId)} hacia ${traslado.sucursalDestinoNombre || sucursalName(traslado.sucursalDestinoId)} — generado por ${traslado.creadoPorNombre || "—"} el ${formatDate(traslado.fechaCreacion)}.`;
+
+  document.getElementById("panelNuevoTraslado").classList.add("hidden");
+  document.getElementById("panelRecibirTraslado").classList.remove("hidden");
+  renderRecepcionItemsTable();
+  document.getElementById("recibirScan").value = "";
+  document.getElementById("recibirScan").focus();
+}
+
+function cerrarRecepcionTraslado() {
+  TRASLADO_EN_RECEPCION = null;
+  document.getElementById("panelRecibirTraslado").classList.add("hidden");
+  applyRoleVisibility(); // vuelve a mostrar/ocultar "Nuevo traslado" según corresponda
+}
+
+function renderRecepcionItemsTable() {
+  if (!TRASLADO_EN_RECEPCION) return;
+  const { traslado, cantidades, motivos } = TRASLADO_EN_RECEPCION;
+  const tbody = document.getElementById("recibirItemsBody");
+  tbody.innerHTML = traslado.productos
+    .map((p) => {
+      const recibido = cantidades[p.productId] || 0;
+      const diferencia = p.cantidadEnviada - recibido;
+      return `<tr>
+        <td class="font-medium text-ink">${p.nombre}</td>
+        <td class="font-mono text-xs text-slate-400">${p.sku || "—"}</td>
+        <td class="font-mono">${p.cantidadEnviada}</td>
+        <td><input type="number" min="0" step="1" class="form-input" data-recibido="${p.productId}" value="${recibido}" style="padding:0.4rem 0.6rem"></td>
+        <td>
+          <input type="text" class="form-input" data-motivo="${p.productId}" placeholder="${diferencia !== 0 ? "Ej: rotura en el traslado" : "—"}" value="${motivos[p.productId] || ""}" ${diferencia === 0 ? "disabled" : ""} style="padding:0.4rem 0.6rem">
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  tbody.querySelectorAll("[data-recibido]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const productId = input.getAttribute("data-recibido");
+      const val = parseInt(input.value, 10);
+      TRASLADO_EN_RECEPCION.cantidades[productId] = val >= 0 ? val : 0;
+      renderRecepcionItemsTable();
+    });
+  });
+  tbody.querySelectorAll("[data-motivo]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const productId = input.getAttribute("data-motivo");
+      TRASLADO_EN_RECEPCION.motivos[productId] = input.value;
+    });
+  });
+}
+
+function setupRecepcionTraslado() {
+  const cerrarBtn = document.getElementById("cerrarRecibirTraslado");
+  if (!cerrarBtn) return;
+  cerrarBtn.addEventListener("click", () => {
+    openConfirmModal(
+      "Cerrar sin confirmar",
+      "¿Cerrar esta recepción sin confirmar? Lo que hayas cargado no se guarda.",
+      "Cerrar",
+      () => cerrarRecepcionTraslado()
+    );
+  });
+
+  const scanInput = document.getElementById("recibirScan");
+  function sumarPorCodigo(code) {
+    if (!TRASLADO_EN_RECEPCION) return;
+    const product = findProductByCode(code);
+    if (!product) {
+      showToast(`No se encontró ningún producto con el código ${code}.`, "error");
+      return;
+    }
+    const perteneceAlRemito = TRASLADO_EN_RECEPCION.traslado.productos.some((p) => p.productId === product.id);
+    if (!perteneceAlRemito) {
+      showToast(`${product.nombre} no forma parte de este remito.`, "error");
+      return;
+    }
+    TRASLADO_EN_RECEPCION.cantidades[product.id] = (TRASLADO_EN_RECEPCION.cantidades[product.id] || 0) + 1;
+    renderRecepcionItemsTable();
+    showToast(`+1 ${product.nombre} (${TRASLADO_EN_RECEPCION.cantidades[product.id]} contadas)`, "success");
+  }
+  scanInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const code = scanInput.value.trim();
+    if (!code) return;
+    sumarPorCodigo(code);
+    scanInput.value = "";
+  });
+  document.getElementById("recibirScanCam").addEventListener("click", () => {
+    openCameraScanner((decodedText) => sumarPorCodigo(decodedText));
+  });
+
+  document.getElementById("confirmarRecepcionBtn").addEventListener("click", () => {
+    if (!TRASLADO_EN_RECEPCION) return;
+    const { traslado, cantidades, motivos } = TRASLADO_EN_RECEPCION;
+    const recepciones = traslado.productos.map((p) => ({
+      productId: p.productId,
+      cantidadRecibida: cantidades[p.productId] || 0,
+      motivoDiferencia: motivos[p.productId] || ""
+    }));
+    const conDiferenciaSinMotivo = recepciones.some((r) => {
+      const enviado = traslado.productos.find((p) => p.productId === r.productId);
+      return enviado && enviado.cantidadEnviada !== r.cantidadRecibida && !r.motivoDiferencia.trim();
+    });
+    if (conDiferenciaSinMotivo) {
+      showToast("Hay productos con una cantidad distinta a la enviada: indicá el motivo de la diferencia antes de confirmar.", "error");
+      return;
+    }
+    openConfirmModal(
+      "Confirmar recepción",
+      `¿Confirmar la recepción de <strong>${traslado.numero}</strong>? Esto va a actualizar el stock de ambas sucursales y no se puede deshacer.`,
+      "Confirmar",
+      () => confirmarRecepcionTraslado(traslado.id, recepciones)
+    );
+  });
+}
+
+/* Llama al endpoint serverless (ver nota al inicio de este bloque sobre por
+   qué esto no se hace directo contra Firestore desde el navegador). */
+async function confirmarRecepcionTraslado(trasladoId, recepciones) {
+  if (!isFirebaseReady()) {
+    // ---- Modo demo (sin Firebase, sin backend): se resuelve todo acá mismo ----
+    const traslado = STORE.traslados.find((t) => t.id === trasladoId);
+    if (!traslado) return;
+    recepciones.forEach((r) => {
+      const p = getProduct(r.productId);
+      if (!p) return;
+      const enviado = traslado.productos.find((x) => x.productId === r.productId);
+      const cantidadEnviada = enviado ? enviado.cantidadEnviada : 0;
+      if (!p.stockPorSucursal) p.stockPorSucursal = {};
+      const sinDiscriminar = Object.keys(p.stockPorSucursal).length === 0;
+      const stockOrigenActual = sinDiscriminar ? (p.stock || 0) : (p.stockPorSucursal[traslado.sucursalOrigenId] || 0);
+      const stockDestinoActual = sinDiscriminar ? 0 : (p.stockPorSucursal[traslado.sucursalDestinoId] || 0);
+      p.stockPorSucursal[traslado.sucursalOrigenId] = stockOrigenActual - cantidadEnviada;
+      p.stockPorSucursal[traslado.sucursalDestinoId] = stockDestinoActual + r.cantidadRecibida;
+
+      const diferencia = cantidadEnviada - r.cantidadRecibida;
+      STORE.movements.push({
+        id: uid("m"), tipo: "salida", productId: r.productId, cantidad: cantidadEnviada,
+        nota: `Traslado ${traslado.numero} → ${traslado.sucursalDestinoNombre}`,
+        sucursalId: traslado.sucursalOrigenId, montoTotal: 0, esTraslado: true, trasladoId,
+        creadoPorUid: traslado.creadoPorUid, creadoPorNombre: traslado.creadoPorNombre,
+        fecha: new Date().toISOString()
+      });
+      STORE.movements.push({
+        id: uid("m"), tipo: "entrada", productId: r.productId, cantidad: r.cantidadRecibida,
+        nota: `Traslado ${traslado.numero} ← ${traslado.sucursalOrigenNombre}${diferencia !== 0 ? ` · diferencia ${diferencia > 0 ? "-" : "+"}${Math.abs(diferencia)} (${r.motivoDiferencia || "sin motivo"})` : ""}`,
+        sucursalId: traslado.sucursalDestinoId, montoTotal: 0, esTraslado: true, trasladoId,
+        creadoPorUid: CURRENT_USER.uid, creadoPorNombre: nombreUsuarioActual(),
+        fecha: new Date().toISOString()
+      });
+    });
+    traslado.estado = "recibido";
+    traslado.recepcion = {
+      fecha: new Date().toISOString(),
+      recibidoPorUid: CURRENT_USER.uid,
+      recibidoPorNombre: nombreUsuarioActual(),
+      productos: recepciones.map((r) => {
+        const enviado = traslado.productos.find((p) => p.productId === r.productId);
+        const cantidadEnviada = enviado ? enviado.cantidadEnviada : 0;
+        return { productId: r.productId, cantidadRecibida: r.cantidadRecibida, diferencia: cantidadEnviada - r.cantidadRecibida, motivoDiferencia: r.motivoDiferencia || "" };
+      })
+    };
+    saveStore();
+    cerrarRecepcionTraslado();
+    renderTraslados();
+    renderEntradas();
+    renderSalidas();
+    renderDashboard();
+    showToast(`Recepción de ${traslado.numero} confirmada (modo demo).`, "success");
+    return;
+  }
+
+  const idToken = await getIdTokenSafe();
+  try {
+    const res = await fetch(`${API_BASE}/api/confirmar-traslado`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+      body: JSON.stringify({ trasladoId, recepciones })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || "No se pudo confirmar la recepción.", "error");
+      return;
+    }
+    showToast("Recepción confirmada. El stock de ambas sucursales ya se actualizó.", "success");
+    cerrarRecepcionTraslado();
+    // Los onSnapshot de productos/movimientos/traslados refrescan solos el resto de la pantalla.
+  } catch (err) {
+    console.error("Error llamando a /api/confirmar-traslado:", err);
+    showToast("No se pudo conectar con el servidor. ¿Ya desplegaste /api/confirmar-traslado en Vercel?", "error");
+  }
+}
+
+setupTrasladoForm();
+setupRecepcionTraslado();
+
+/* =========================================================================
    INVENTARIO
    ========================================================================= */
+/* Para el Administrador, deja elegir "Todas las sucursales" (stock agregado del
+   negocio, como antes) o una sucursal puntual (stock real de esa sucursal) —
+   así puede comparar sucursal por sucursal en vez de solo ver el total
+   sumado, que podía tapar que una estuviera con exceso y otra en cero. Un
+   encargado sigue viendo, fijo, solo la suya (mismo patrón que ya usan los
+   filtros del Dashboard). */
+function populateInventarioSucursalFilter() {
+  const select = document.getElementById("inventarioSucursalFilter");
+  if (!select) return;
+  const fixedId = currentUserSucursalId();
+  if (!fixedId) {
+    const current = select.value;
+    select.innerHTML = `<option value="">Todas las sucursales</option>` + STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
+    select.disabled = false;
+    if (STORE.sucursales.some((s) => s.id === current)) select.value = current;
+  } else {
+    const s = getSucursal(fixedId);
+    select.innerHTML = s ? `<option value="${s.id}">${s.nombre}</option>` : `<option value="">Sin sucursal asignada</option>`;
+    select.disabled = true;
+  }
+}
+
 function renderInventario() {
+  populateInventarioSucursalFilter();
   const search = document.getElementById("inventarioSearch").value.trim().toLowerCase();
   const statusFilter = document.getElementById("inventarioStatusFilter").value;
   const mappedStatus = STATUS_FILTER_MAP[statusFilter] || "";
+  const sucursalFiltroId = document.getElementById("inventarioSucursalFilter").value;
 
-  const filtered = STORE.products.filter((p) => {
+  const conStock = STORE.products.map((p) => ({
+    p,
+    stockAqui: sucursalFiltroId ? stockDeSucursal(p, sucursalFiltroId) : stockVisible(p),
+    status: sucursalFiltroId ? productStatusFor(p, sucursalFiltroId) : productStatus(p)
+  }));
+
+  const filtered = conStock.filter(({ p, status }) => {
     const matchesSearch = !search || p.nombre.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search);
-    const matchesStatus = !mappedStatus || productStatus(p) === mappedStatus;
+    const matchesStatus = !mappedStatus || status === mappedStatus;
     return matchesSearch && matchesStatus;
   });
 
@@ -2228,20 +2975,21 @@ function renderInventario() {
   tbody.innerHTML = filtered.length
     ? filtered
         .map(
-          (p) => `<tr>
+          ({ p, stockAqui, status }) => `<tr>
             <td class="font-mono text-xs text-slate-400">${p.sku}</td>
             <td class="font-medium text-ink">${p.nombre}</td>
             <td class="text-slate-400">${p.categoria}</td>
-            <td class="font-mono">${stockVisible(p)}</td>
+            <td class="font-mono">${stockAqui}</td>
             <td class="font-mono">${p.stockMinimo}</td>
-            <td class="font-mono">${formatMoney(stockVisible(p) * p.precio)}</td>
-            <td>${statusTagHtml(productStatus(p))}</td>
+            <td class="font-mono">${formatMoney(stockAqui * p.precio)}</td>
+            <td>${statusTagHtml(status)}</td>
           </tr>`
         )
         .join("")
     : `<tr><td colspan="7" class="empty-state">No encontramos productos con ese criterio.</td></tr>`;
 }
 
+document.getElementById("inventarioSucursalFilter").addEventListener("change", renderInventario);
 document.getElementById("inventarioSearch").addEventListener("input", renderInventario);
 document.getElementById("inventarioStatusFilter").addEventListener("change", renderInventario);
 
@@ -2361,6 +3109,7 @@ function renderReportMovementsTable() {
         <td class="text-slate-400">${product ? product.categoria : "—"}</td>
         <td class="font-mono ${m.tipo === "entrada" ? "text-greendark" : "text-red-500"}">${m.tipo === "entrada" ? "+" : "−"}${m.cantidad}</td>
         <td class="text-slate-400">${m.nota || "—"}</td>
+        <td class="text-slate-400">${m.creadoPorNombre || "—"}</td>
       </tr>`;
     })
     .join("");
@@ -2372,8 +3121,8 @@ function renderReportMovementsTable() {
 function renderReportes() {
   renderDonut(document.getElementById("reportDonut"), document.getElementById("reportDonutLegend"));
 
-  const totalIn = STORE.movements.filter((m) => m.tipo === "entrada").reduce((s, m) => s + m.cantidad, 0);
-  const totalOut = STORE.movements.filter((m) => m.tipo === "salida").reduce((s, m) => s + m.cantidad, 0);
+  const totalIn = STORE.movements.filter((m) => m.tipo === "entrada" && !m.esTraslado).reduce((s, m) => s + m.cantidad, 0);
+  const totalOut = STORE.movements.filter((m) => m.tipo === "salida" && !m.esTraslado).reduce((s, m) => s + m.cantidad, 0);
   const maxMovement = Math.max(totalIn, totalOut, 1);
 
   const movementBars = document.getElementById("movementBars");
@@ -2452,7 +3201,8 @@ const REPORT_COLUMN_DEFS = [
   { id: "colProducto", header: "Producto", key: "producto", width: 30 },
   { id: "colCategoria", header: "Categoría", key: "categoria", width: 18 },
   { id: "colCantidad", header: "Cantidad", key: "cantidad", width: 12 },
-  { id: "colNota", header: "Nota", key: "nota", width: 34 }
+  { id: "colNota", header: "Nota", key: "nota", width: 34 },
+  { id: "colRegistradoPor", header: "Registrado por", key: "registradoPor", width: 22 }
 ];
 
 function getReportColumnValue(key, m, p) {
@@ -2464,6 +3214,7 @@ function getReportColumnValue(key, m, p) {
     case "categoria": return p ? p.categoria : "—";
     case "cantidad": return `${m.tipo === "entrada" ? "+" : "-"}${m.cantidad}`;
     case "nota": return m.nota || "—";
+    case "registradoPor": return m.creadoPorNombre || "—";
     default: return "";
   }
 }
@@ -2572,8 +3323,8 @@ function generateMovementsPdf() {
   });
 
   let finalY = doc.lastAutoTable.finalY + 20;
-  const totalIn = filtered.filter((m) => m.tipo === "entrada").reduce((s, m) => s + m.cantidad, 0);
-  const totalOut = filtered.filter((m) => m.tipo === "salida").reduce((s, m) => s + m.cantidad, 0);
+  const totalIn = filtered.filter((m) => m.tipo === "entrada" && !m.esTraslado).reduce((s, m) => s + m.cantidad, 0);
+  const totalOut = filtered.filter((m) => m.tipo === "salida" && !m.esTraslado).reduce((s, m) => s + m.cantidad, 0);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
@@ -2704,8 +3455,8 @@ async function generateMovementsExcel() {
   });
 
   // ---- Fila de totales ----
-  const totalIn = filtered.filter((m) => m.tipo === "entrada").reduce((s, m) => s + m.cantidad, 0);
-  const totalOut = filtered.filter((m) => m.tipo === "salida").reduce((s, m) => s + m.cantidad, 0);
+  const totalIn = filtered.filter((m) => m.tipo === "entrada" && !m.esTraslado).reduce((s, m) => s + m.cantidad, 0);
+  const totalOut = filtered.filter((m) => m.tipo === "salida" && !m.esTraslado).reduce((s, m) => s + m.cantidad, 0);
   const totalsRowIndex = headerRowIndex + 1 + filtered.length + 1;
   sheet.mergeCells(totalsRowIndex, 1, totalsRowIndex, colCount);
   const totalsCell = sheet.getCell(totalsRowIndex, 1);
@@ -2897,23 +3648,38 @@ document.getElementById("repGenerarExcel").addEventListener("click", generateMov
 /* =========================================================================
    ALERTAS
    ========================================================================= */
+/* FIX (alertas sin sucursal): antes esta lista mostraba una sola alerta por
+   producto, calculada sobre stockVisible() — para el Administrador eso es el
+   TOTAL sumado de todas las sucursales, así que si una sucursal estaba en 0
+   pero otra tenía de sobra, el total podía dar "OK" y la alerta ni aparecía; y
+   aunque apareciera, no decía en qué sucursal reponer. Ahora, para el
+   Administrador, se arma una alerta POR CADA sucursal donde ese producto esté
+   bajo su mínimo (usando productStatusFor/stockDeSucursal), mostrando el
+   nombre de la sucursal. Un encargado sigue viendo solo lo de su propia
+   sucursal, igual que antes. */
 function renderAlertas() {
-  const alerts = STORE.products.filter((p) => productStatus(p) !== "ok").sort((a, b) => stockVisible(a) - stockVisible(b));
   const list = document.getElementById("alertsList");
   const empty = document.getElementById("alertsEmptyState");
+  const alerts = calcularAlertasStock();
+
+  alerts.sort((a, b) => stockDeSucursal(a.product, a.sucursalId) - stockDeSucursal(b.product, b.sucursalId));
 
   list.innerHTML = alerts
-    .map((p) => {
-      const status = productStatus(p);
+    .map(({ product: p, sucursalId }) => {
+      const stockAca = stockDeSucursal(p, sucursalId);
+      const status = statusForStock(stockAca, p.stockMinimo);
       return `<div class="alert-card ${status}">
         <span class="alert-icon">
           <i data-lucide="${status === "critical" ? "alert-octagon" : "alert-triangle"}" class="h-4 w-4"></i>
         </span>
         <div class="flex-1">
           <p class="font-semibold text-sm text-ink">${p.nombre} <span class="text-xs text-slate-400 font-normal">· ${p.sku}</span></p>
-          <p class="text-xs text-slate-500 mt-0.5">Quedan ${stockVisible(p)} unidades — el mínimo es ${p.stockMinimo}.</p>
+          <p class="text-xs text-slate-500 mt-0.5">
+            <span class="alert-sucursal-pill"><i data-lucide="store" class="h-3 w-3"></i> ${sucursalName(sucursalId)}</span>
+            Quedan ${stockAca} unidades — el mínimo es ${p.stockMinimo}.
+          </p>
         </div>
-        <button class="btn-secondary shrink-0" data-restock="${p.id}">
+        <button class="btn-secondary shrink-0" data-restock="${p.id}" data-restock-sucursal="${sucursalId}">
           <i data-lucide="arrow-down-to-line" class="h-4 w-4"></i>
           Reponer
         </button>
@@ -2923,13 +3689,17 @@ function renderAlertas() {
 
   empty.classList.toggle("hidden", alerts.length > 0);
   refreshIcons();
+  updateAlertBadges();
 
   list.querySelectorAll("[data-restock]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-restock");
+      const sucursalId = btn.getAttribute("data-restock-sucursal");
       switchSection("entradas");
       requestAnimationFrame(() => {
         document.getElementById("entradaProducto").value = id;
+        const sucursalSelect = document.getElementById("entradaSucursal");
+        if (sucursalSelect && !sucursalSelect.disabled && sucursalId) sucursalSelect.value = sucursalId;
         document.getElementById("entradaCantidad").focus();
       });
     });
@@ -3227,17 +3997,32 @@ function renderEncargados() {
       const estadoLabel = e.id
         ? (e.activo === false ? "Deshabilitado" : "Activo")
         : (e.estado === "error" ? "Error al crear" : "Creando...");
+      // FIX: si se borró la sucursal a la que estaba asignado (o quedó con un
+      // sucursalId que ya no existe por cualquier otro motivo), avisamos acá en
+      // vez de mostrar sucursalName() en blanco silenciosamente — así el
+      // Administrador ve de un vistazo quién quedó sin poder operar y necesita
+      // que le reasignen una sucursal (botón "Cambiar sucursal" más abajo).
+      const sucursalValida = e.id && STORE.sucursales.some((s) => s.id === e.sucursalId);
+      const sucursalCelda = !e.id
+        ? sucursalName(e.sucursalId)
+        : sucursalValida
+          ? sucursalName(e.sucursalId)
+          : `<span class="status-tag status-critical">Sin sucursal</span>`;
       return `<tr>
         <td class="font-medium text-ink">
           <span class="avatar-sm">${e.nombre.charAt(0)}</span>
           ${e.nombre}
         </td>
         <td class="text-slate-400">${e.email}</td>
-        <td class="text-slate-400">${sucursalName(e.sucursalId)}</td>
+        <td class="text-slate-400">${sucursalCelda}</td>
         <td class="${estadoClass} font-mono text-xs">${estadoLabel}</td>
         <td class="text-right">
-          ${e.id ? `<button class="icon-btn" data-invite-encargado="${e.id}" aria-label="Reenviar invitación"><i data-lucide="send" class="h-4 w-4"></i></button>` : ""}
-          ${e.id ? `<button class="icon-btn danger" data-toggle-encargado="${e.id}" data-disabled="${e.activo === false}" aria-label="${e.activo === false ? "Reactivar" : "Deshabilitar"}"><i data-lucide="${e.activo === false ? "rotate-ccw" : "user-x"}" class="h-4 w-4"></i></button>` : ""}
+          <div class="flex justify-end gap-2">
+            ${e.id ? `<button class="icon-btn" data-invite-encargado="${e.id}" aria-label="Reenviar invitación"><i data-lucide="send" class="h-4 w-4"></i></button>` : ""}
+            ${e.id ? `<button class="icon-btn" data-reasignar-sucursal="${e.id}" aria-label="Cambiar sucursal"><i data-lucide="repeat" class="h-4 w-4"></i></button>` : ""}
+            ${e.id ? `<button class="icon-btn danger" data-toggle-encargado="${e.id}" data-disabled="${e.activo === false}" aria-label="${e.activo === false ? "Reactivar" : "Deshabilitar"}"><i data-lucide="${e.activo === false ? "rotate-ccw" : "user-x"}" class="h-4 w-4"></i></button>` : ""}
+            ${e.id ? `<button class="icon-btn danger" data-eliminar-encargado="${e.id}" aria-label="Eliminar definitivamente"><i data-lucide="trash-2" class="h-4 w-4"></i></button>` : ""}
+          </div>
         </td>
       </tr>`;
     })
@@ -3250,6 +4035,13 @@ function renderEncargados() {
     btn.addEventListener("click", () => {
       const enc = STORE.encargados.find((x) => x.id === btn.getAttribute("data-invite-encargado"));
       if (enc) openInviteModal({ nombre: enc.nombre, email: enc.email, sucursalId: enc.sucursalId, password: null });
+    });
+  });
+
+  tbody.querySelectorAll("[data-reasignar-sucursal]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const enc = STORE.encargados.find((x) => x.id === btn.getAttribute("data-reasignar-sucursal"));
+      if (enc) openReasignarSucursalModal(enc);
     });
   });
 
@@ -3267,6 +4059,79 @@ function renderEncargados() {
       );
     });
   });
+
+  tbody.querySelectorAll("[data-eliminar-encargado]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const encUid = btn.getAttribute("data-eliminar-encargado");
+      const enc = STORE.encargados.find((x) => x.id === encUid);
+      openConfirmModal(
+        "Eliminar encargado definitivamente",
+        `¿Seguro que querés eliminar a <strong>${enc.nombre}</strong>? Esto borra su acceso por completo (no como deshabilitar) — si más adelante necesita volver a entrar, hay que crearlo de nuevo desde cero. Esta acción no se puede deshacer.`,
+        "Eliminar definitivamente",
+        () => eliminarEncargado(encUid)
+      );
+    });
+  });
+}
+
+/* Modal simple para elegir la nueva sucursal de un encargado — sirve tanto
+   para reincorporar a uno que quedó "Sin sucursal" (porque se borró la suya)
+   como para mover a cualquier encargado activo a otra sucursal. */
+function openReasignarSucursalModal(encargado) {
+  openModal(
+    "Cambiar sucursal",
+    `<p class="text-sm text-slate-500 mb-3">Elegí la sucursal a la que va a quedar asignado <strong>${encargado.nombre}</strong>.</p>
+    <form id="reasignarSucursalForm" class="movement-form">
+      <label class="form-label" style="margin-top:0">Sucursal</label>
+      <select id="reasignarSucursalSelect" class="form-input" required>
+        ${STORE.sucursales.map((s) => `<option value="${s.id}" ${s.id === encargado.sucursalId ? "selected" : ""}>${s.nombre}</option>`).join("")}
+      </select>
+      <button type="submit" class="btn-primary w-full justify-center mt-4">
+        <i data-lucide="repeat" class="h-4 w-4"></i>
+        Guardar sucursal
+      </button>
+    </form>`,
+    (body) => {
+      body.querySelector("#reasignarSucursalForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const sucursalId = body.querySelector("#reasignarSucursalSelect").value;
+        reasignarSucursalEncargado(encargado.id, sucursalId);
+      });
+    }
+  );
+}
+
+async function reasignarSucursalEncargado(encargadoUid, sucursalId) {
+  if (isFirebaseReady()) {
+    const idToken = await getIdTokenSafe();
+    try {
+      const res = await fetch(`${API_BASE}/api/reasignar-sucursal-encargado`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+        body: JSON.stringify({ uid: encargadoUid, sucursalId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "No se pudo cambiar la sucursal.", "error");
+        return;
+      }
+      closeModal();
+      showToast("Sucursal actualizada. El encargado va a verla reflejada la próxima vez que inicie sesión.", "success");
+    } catch (err) {
+      console.error("Error llamando a /api/reasignar-sucursal-encargado:", err);
+      showToast("No se pudo conectar con el servidor.", "error");
+    }
+    return;
+  }
+  // ---- Modo demo (sin Firebase) ----
+  const enc = STORE.encargados.find((x) => x.id === encargadoUid);
+  if (enc) {
+    enc.sucursalId = sucursalId;
+    saveStore();
+    closeModal();
+    renderEncargados();
+    showToast("Sucursal actualizada (modo demo).", "success");
+  }
 }
 
 async function toggleEncargado(encargadoUid, disabled) {
@@ -3275,7 +4140,7 @@ async function toggleEncargado(encargadoUid, disabled) {
     const res = await fetch(`${API_BASE}/api/disable-encargado`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
-      body: JSON.stringify({ uid: encargadoUid, disabled })
+      body: JSON.stringify({ uid: encargadoUid, action: disabled ? "disable" : "enable" })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -3283,6 +4148,27 @@ async function toggleEncargado(encargadoUid, disabled) {
       return;
     }
     showToast(disabled ? "Encargado deshabilitado." : "Encargado reactivado.", "success");
+  } catch (err) {
+    console.error("Error llamando a /api/disable-encargado:", err);
+    showToast("No se pudo conectar con el servidor.", "error");
+  }
+}
+
+async function eliminarEncargado(encargadoUid) {
+  const idToken = await getIdTokenSafe();
+  try {
+    const res = await fetch(`${API_BASE}/api/disable-encargado`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+      body: JSON.stringify({ uid: encargadoUid, action: "delete" })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || "No se pudo eliminar al encargado.", "error");
+      return;
+    }
+    showToast("Encargado eliminado.", "success");
+    // El onSnapshot de suscribirEncargadosFirestore() refresca la tabla solo.
   } catch (err) {
     console.error("Error llamando a /api/disable-encargado:", err);
     showToast("No se pudo conectar con el servidor.", "error");
@@ -3868,6 +4754,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAuthUser();
   applyRoleVisibility();
   renderDashboard();
+  renderTraslados();
   initOnboardingTour();
   initTrialGuard();
 });

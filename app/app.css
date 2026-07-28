@@ -779,6 +779,22 @@ select:focus-visible {
 }
 .alert-card.critical .alert-icon { background: #FEE2E2; color: #B91C1C; }
 .alert-card.low .alert-icon { background: #FEF3C7; color: #92400E; }
+.alert-sucursal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #475569;
+  background: #F1F5F9;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  margin-right: 0.4rem;
+}
+.alert-card.critical .alert-sucursal-pill { background: #FEE2E2; color: #B91C1C; }
+.alert-card.low .alert-sucursal-pill { background: #FEF3C7; color: #92400E; }
 
 /* ===================== Report bars ===================== */
 .bar-row {

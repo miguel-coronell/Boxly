@@ -24,11 +24,9 @@ service cloud.firestore {
     function miSucursalClaim() {
       return request.auth.token.get("sucursalId", null);
     }
-
     match /{document=**} {
       allow read, write: if isCreator();
     }
-
     match /users/{uid} {
       allow read: if estaLogueado() && (request.auth.uid == uid || negocioIdDelUsuario() == resource.data.negocioId);
       allow create: if estaLogueado()
@@ -41,14 +39,46 @@ service cloud.firestore {
              .hasOnly(['nombre', 'telefono', 'fotoURL']);
       allow delete: if false;
     }
-
     match /negocios/{negocioId} {
       allow read, update: if perteneceAlNegocio(negocioId);
       allow create: if estaLogueado() && negocioId == request.auth.uid;
       allow delete: if false;
 
       match /productos/{productId} {
-        allow read, write: if perteneceAlNegocio(negocioId);
+        allow read: if perteneceAlNegocio(negocioId);
+        // FIX (stock por sucursal): antes cualquier miembro del negocio —
+        // incluido un encargado— podía escribir CUALQUIER campo de CUALQUIER
+        // producto (nombre, precio, SKU, o el stock de una sucursal que no es
+        // la suya) directo contra Firestore, sin pasar por app.js. La UI ya
+        // lo ocultaba, pero eso no protege la base de datos de alguien que
+        // llame a Firestore a mano (devtools / consola).
+        //
+        // Ahora: crear/borrar productos y editar el catálogo (nombre, sku,
+        // precio, categoría, stockMinimo) sigue siendo solo del Administrador.
+        // Un encargado únicamente puede tocar "stock" y "stockPorSucursal" —
+        // y, dentro de "stockPorSucursal", únicamente SU PROPIA clave (la
+        // sucursal que le asignó el Administrador). Así, aunque intente
+        // escribir el stock de otra sucursal a mano, la regla lo rechaza.
+        //
+        // NOTA sobre traslados: un traslado mueve stock entre DOS sucursales
+        // a la vez (origen y destino), por eso esa operación puntual no pasa
+        // por acá — se hace con el Admin SDK en /api/confirmar-traslado.js,
+        // que no está atado a esta regla y en cambio valida a mano que quien
+        // llama tiene permiso real sobre ese traslado. Esta regla sigue
+        // protegiendo cualquier otro intento de tocar el stock de una
+        // sucursal ajena directo desde el cliente.
+        allow create, delete: if perteneceAlNegocio(negocioId) && !esEncargado();
+        allow update: if perteneceAlNegocio(negocioId) && (
+          !esEncargado()
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'stockPorSucursal'])
+            && (
+              !('stockPorSucursal' in request.resource.data)
+              || !('stockPorSucursal' in resource.data)
+              || request.resource.data.stockPorSucursal.diff(resource.data.stockPorSucursal).affectedKeys().hasOnly([miSucursalClaim()])
+            )
+          )
+        );
       }
 
       match /movimientos/{movId} {
@@ -60,11 +90,30 @@ service cloud.firestore {
           (!esEncargado() || miSucursalClaim() == resource.data.sucursalId);
       }
 
+      // Traslados (remisiones) entre sucursales — Requerimiento: solo el
+      // Administrador puede generar remisiones; un encargado solo puede
+      // ver/actuar sobre los traslados donde su sucursal es origen o destino.
+      // El cambio de stock real al confirmar la recepción NO pasa por esta
+      // regla (ver /api/confirmar-traslado.js); esta regla solo protege la
+      // lectura/creación/edición del documento del traslado en sí.
+      match /traslados/{trasladoId} {
+        allow read: if perteneceAlNegocio(negocioId) &&
+          (!esEncargado()
+            || miSucursalClaim() == resource.data.sucursalOrigenId
+            || miSucursalClaim() == resource.data.sucursalDestinoId);
+        allow create: if perteneceAlNegocio(negocioId) && !esEncargado();
+        // "update" queda habilitado para que el Administrador pueda cancelar
+        // (estado -> "cancelado") un traslado pendiente. El paso a "recibido"
+        // y el movimiento de stock asociado los hace exclusivamente
+        // /api/confirmar-traslado.js con el Admin SDK.
+        allow update: if perteneceAlNegocio(negocioId) && !esEncargado() && resource.data.estado == "pendiente";
+        allow delete: if false;
+      }
+
       match /sucursales/{sucursalId} {
         allow read: if perteneceAlNegocio(negocioId);
         allow write: if perteneceAlNegocio(negocioId) && !esEncargado();
       }
-
       match /usuarios/{usuarioId} {
         allow read, write: if perteneceAlNegocio(negocioId);
       }
