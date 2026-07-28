@@ -1912,3 +1912,9 @@ html {
 .encargado-status-activo { color: var(--greendark); }
 .encargado-status-pendiente { color: #92400E; }
 .encargado-status-error { color: #B91C1C; }
+
+/* Fila de un producto en el remito de traslado que excede el stock físico
+   disponible en la sucursal de origen — no se puede enviar más de lo que hay. */
+.traslado-item-excede td {
+  background: #FEF2F2;
+}

@@ -133,13 +133,27 @@ module.exports = async function handler(req, res) {
     //    movimientos de auditoría (salida en origen / entrada en destino) y
     //    cerrar el traslado como "recibido".
     // ------------------------------------------------------------------
+    // Declarado afuera de la transacción para poder informarlo en la respuesta;
+    // se reinicia al principio de cada intento porque Firestore puede volver a
+    // ejecutar el callback de la transacción si hay conflictos de concurrencia.
+    let clampeoOrigenPorProducto = {};
+
     await db.runTransaction(async (transaction) => {
+      clampeoOrigenPorProducto = {};
       // Firestore exige que TODAS las lecturas de una transacción sucedan
       // antes que cualquier escritura.
       const productRefs = recepciones.map((r) =>
         db.collection("negocios").doc(negocioId).collection("productos").doc(r.productId)
       );
       const productSnaps = await Promise.all(productRefs.map((ref) => transaction.get(ref)));
+
+      // clampeoOrigenPorProducto (declarado arriba, fuera de la transacción):
+      // guarda, por producto, si hubo que "frenar" el descuento de origen
+      // porque el stock real disponible ya era menor a lo que decía el
+      // remito (puede pasar si entre que se creó el traslado y se confirmó
+      // hubo otro movimiento en esa sucursal) — se usa después para dejar
+      // constancia en el movimiento y en el propio remito, en vez de dejar
+      // pasar un stock negativo en silencio.
 
       productSnaps.forEach((snap, i) => {
         // Si el producto se borró mientras el traslado estaba pendiente, no hay
@@ -157,8 +171,18 @@ module.exports = async function handler(req, res) {
         // producto queda discriminado por sucursal de ahí en adelante.
         const stockOrigenActual = sinDiscriminar ? (data.stock || 0) : (stockPorSucursal[traslado.sucursalOrigenId] || 0);
         const stockDestinoActual = sinDiscriminar ? 0 : (stockPorSucursal[traslado.sucursalDestinoId] || 0);
+        // FIX (stock negativo): un producto físico no puede quedar en -2, -5,
+        // etc. Si el stock de origen ya era menor a lo enviado (normalmente
+        // porque el formulario ya lo validó antes de crear el traslado, pero
+        // esto es la última barrera del lado del servidor), se frena en 0 en
+        // vez de restar de más, y se deja anotado para que el Administrador
+        // lo revise.
+        const nuevoStockOrigen = stockOrigenActual - cantidadEnviada;
+        if (nuevoStockOrigen < 0) {
+          clampeoOrigenPorProducto[r.productId] = { stockOrigenActual, cantidadEnviada, faltante: -nuevoStockOrigen };
+        }
         transaction.update(productRefs[i], {
-          [`stockPorSucursal.${traslado.sucursalOrigenId}`]: stockOrigenActual - cantidadEnviada,
+          [`stockPorSucursal.${traslado.sucursalOrigenId}`]: Math.max(0, nuevoStockOrigen),
           [`stockPorSucursal.${traslado.sucursalDestinoId}`]: stockDestinoActual + r.cantidadRecibida
         });
       });
@@ -170,11 +194,14 @@ module.exports = async function handler(req, res) {
         const diferencia = cantidadEnviada - r.cantidadRecibida;
 
         const salidaRef = db.collection("negocios").doc(negocioId).collection("movimientos").doc();
+        const clampInfo = clampeoOrigenPorProducto[r.productId];
         transaction.set(salidaRef, {
           tipo: "salida",
           productId: r.productId,
           cantidad: cantidadEnviada,
-          nota: `Traslado ${traslado.numero} → ${traslado.sucursalDestinoNombre || ""}`.trim(),
+          nota: `Traslado ${traslado.numero} → ${traslado.sucursalDestinoNombre || ""}${
+            clampInfo ? ` · ⚠ el stock de origen ya era menor a lo enviado (tenía ${clampInfo.stockOrigenActual}, faltaron ${clampInfo.faltante}) — quedó en 0, revisar` : ""
+          }`.trim(),
           sucursalId: traslado.sucursalOrigenId,
           montoTotal: 0,
           esTraslado: true,
@@ -222,7 +249,13 @@ module.exports = async function handler(req, res) {
       });
     });
 
-    return res.status(200).json({ ok: true });
+    const productosConFaltante = Object.keys(clampeoOrigenPorProducto);
+    return res.status(200).json({
+      ok: true,
+      advertencia: productosConFaltante.length
+        ? `El stock de origen ya era menor a lo enviado en ${productosConFaltante.length} producto(s) del remito — se dejó en 0 en vez de quedar negativo. Revisá el inventario de esa sucursal.`
+        : null
+    });
   } catch (err) {
     console.error("Error inesperado en /api/confirmar-traslado:", err);
     return res.status(500).json({ error: "Error interno del servidor." });

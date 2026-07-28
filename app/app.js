@@ -2405,10 +2405,19 @@ function renderTrasladoItemsTable() {
     .map((item, idx) => {
       const p = getProduct(item.productId);
       const stockOrigen = p ? stockDeSucursal(p, origenId) : 0;
-      return `<tr>
+      // FIX (stock negativo): no dejamos cargar una cantidad mayor a la que
+      // hay físicamente en la sucursal de origen — antes no había ningún tope,
+      // así que se podía armar un remito por más unidades de las que existían,
+      // y al confirmarlo el stock de origen quedaba en negativo (ej: -2
+      // cuadernos), algo imposible con productos físicos.
+      const excedeStock = item.cantidad > stockOrigen;
+      return `<tr class="${excedeStock ? "traslado-item-excede" : ""}">
         <td class="font-medium text-ink">${p ? p.nombre : "Producto eliminado"}</td>
         <td class="font-mono text-xs text-slate-400">${stockOrigen}</td>
-        <td><input type="number" min="1" step="1" class="form-input" data-traslado-cantidad="${idx}" value="${item.cantidad}" style="padding:0.4rem 0.6rem"></td>
+        <td>
+          <input type="number" min="1" max="${stockOrigen || 1}" step="1" class="form-input" data-traslado-cantidad="${idx}" value="${item.cantidad}" style="padding:0.4rem 0.6rem">
+          ${excedeStock ? `<p class="text-xs text-red-500 mt-1">Máximo disponible: ${stockOrigen}</p>` : ""}
+        </td>
         <td><button type="button" class="icon-btn danger" data-traslado-quitar="${idx}" aria-label="Quitar"><i data-lucide="trash-2" class="h-4 w-4"></i></button></td>
       </tr>`;
     })
@@ -2436,7 +2445,22 @@ function renderTrasladoItemsTable() {
 
 function agregarProductoATraslado(productId) {
   if (!productId) return;
+  const p = getProduct(productId);
+  const origenId = document.getElementById("trasladoOrigen").value;
+  const stockOrigen = p ? stockDeSucursal(p, origenId) : 0;
+
   const existente = TRASLADO_ITEMS.find((it) => it.productId === productId);
+  const cantidadActual = existente ? existente.cantidad : 0;
+
+  // FIX (stock negativo): no dejamos que un producto escaneado repetidas
+  // veces (o agregado a mano) supere el stock físico disponible en la
+  // sucursal de origen — es lo mismo que aparece marcado en rojo si lo
+  // editás a mano en la tabla, pero acá lo cortamos antes de que pase.
+  if (cantidadActual >= stockOrigen) {
+    showToast(`No hay más stock disponible de "${p ? p.nombre : "este producto"}" en ${sucursalName(origenId)} (máximo ${stockOrigen}).`, "error");
+    return;
+  }
+
   if (existente) {
     existente.cantidad += 1;
   } else {
@@ -2507,6 +2531,21 @@ function setupTrasladoForm() {
     }
     if (!TRASLADO_ITEMS.length) {
       showToast("Agregá al menos un producto al remito.", "error");
+      return;
+    }
+
+    // FIX (stock negativo): última barrera antes de generar el remito — si
+    // algún producto quedó con una cantidad mayor a la disponible en origen
+    // (por ejemplo, porque cambiaste de sucursal de origen después de
+    // agregarlo), no dejamos enviar el formulario. Sin este chequeo, el
+    // stock de esa sucursal terminaba en negativo al confirmar la recepción.
+    const excedidos = TRASLADO_ITEMS.filter((it) => {
+      const p = getProduct(it.productId);
+      return !p || it.cantidad > stockDeSucursal(p, sucursalOrigenId);
+    });
+    if (excedidos.length) {
+      showToast("Hay productos con una cantidad mayor al stock disponible en origen. Corregilos antes de generar la remisión.", "error");
+      renderTrasladoItemsTable();
       return;
     }
 
@@ -2863,7 +2902,9 @@ async function confirmarRecepcionTraslado(trasladoId, recepciones) {
       const sinDiscriminar = Object.keys(p.stockPorSucursal).length === 0;
       const stockOrigenActual = sinDiscriminar ? (p.stock || 0) : (p.stockPorSucursal[traslado.sucursalOrigenId] || 0);
       const stockDestinoActual = sinDiscriminar ? 0 : (p.stockPorSucursal[traslado.sucursalDestinoId] || 0);
-      p.stockPorSucursal[traslado.sucursalOrigenId] = stockOrigenActual - cantidadEnviada;
+      // FIX (stock negativo): mismo resguardo que en /api/confirmar-traslado.js
+      // — un producto físico no puede quedar en negativo.
+      p.stockPorSucursal[traslado.sucursalOrigenId] = Math.max(0, stockOrigenActual - cantidadEnviada);
       p.stockPorSucursal[traslado.sucursalDestinoId] = stockDestinoActual + r.cantidadRecibida;
 
       const diferencia = cantidadEnviada - r.cantidadRecibida;
@@ -2916,6 +2957,9 @@ async function confirmarRecepcionTraslado(trasladoId, recepciones) {
       return;
     }
     showToast("Recepción confirmada. El stock de ambas sucursales ya se actualizó.", "success");
+    if (data.advertencia) {
+      showToast(data.advertencia, "error");
+    }
     cerrarRecepcionTraslado();
     // Los onSnapshot de productos/movimientos/traslados refrescan solos el resto de la pantalla.
   } catch (err) {
