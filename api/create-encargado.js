@@ -153,11 +153,6 @@ module.exports = async function handler(req, res) {
       sucursalId,
       negocioId, // a qué negocio pertenece este encargado (el del Admin que lo crea)
       activo: true,
-      // FIX (login.js): con esto en true, login.js frena al encargado en una
-      // pantalla obligatoria de "elegí tu contraseña" apenas confirma el login
-      // con la contraseña temporal, y recién la apaga (set a false) una vez
-      // que el propio encargado eligió su contraseña definitiva.
-      debeCambiarPassword: true,
       creadoEn: admin.firestore.FieldValue.serverTimestamp()
     };
     await db.collection("users").doc(userRecord.uid).set(perfilEncargado);

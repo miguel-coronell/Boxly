@@ -4,7 +4,24 @@
    (ver firebase-config.js / login.html para la integración de autenticación)
    ========================================================================= */
 
-const STORAGE_KEY = "boxly_app_data_v1";
+const STORAGE_KEY_PREFIX = "boxly_app_data_v1";
+/* FIX (seguridad multi-cuenta / fuga de datos entre negocios): antes
+   STORAGE_KEY era una única clave fija de localStorage, compartida por
+   CUALQUIER cuenta que iniciara sesión en ese mismo navegador. La sección
+   "Usuarios" (STORE.users, más abajo) todavía vive enteramente en
+   localStorage —a diferencia de "Encargados de sucursal", que ya está
+   migrado a Firestore y filtrado por negocioId—, así que si en algún momento
+   se probaron cuentas de distintos Administradores en la misma PC, la
+   segunda cuenta heredaba la lista de usuarios "invitados" de la primera sin
+   darse cuenta: cada negocio terminaba viendo usuarios que no eran suyos.
+   Ahora la clave de localStorage se arma con el uid de la cuenta logueada
+   (getStorageKey()), así que cada cuenta tiene su propio balde de datos
+   locales, sin mezclarse con los de otra cuenta que haya usado el mismo
+   navegador antes. Se calcula en el momento de leer/guardar (no una sola vez
+   al cargar el script) porque CURRENT_USER recién queda asignado más abajo. */
+function getStorageKey() {
+  return CURRENT_USER && CURRENT_USER.uid ? `${STORAGE_KEY_PREFIX}_${CURRENT_USER.uid}` : STORAGE_KEY_PREFIX;
+}
 const AUTH_KEY = "boxly_auth_user";
 const NEW_USER_FLAG = "boxly_new_user";
 const TOUR_DONE_FLAG = "boxly_onboarding_done";
@@ -125,6 +142,10 @@ function iniciarSincronizacionFirestore() {
       suscribirSucursalesFirestore(db);
       suscribirNegocioFirestore(db);
       suscribirEncargadosFirestore(db);
+      // El Panel Creador (que escuchaba TODOS los negocios de Boxly) se sacó:
+      // la cuenta creadora ahora funciona como un Administrador normal, con
+      // plan ilimitado (ver isCreatorAccount() en getPlanLimits()), sin una
+      // pantalla aparte para administrar otras cuentas.
     })
     .catch((err) => console.error("No se pudo leer el negocioId del usuario.", err));
 }
@@ -194,6 +215,56 @@ function suscribirMovimientosFirestore(db, _retried) {
         showToast("No se pudieron sincronizar los movimientos. Revisá tu conexión.", "error");
       }
     );
+}
+
+/* =========================================================================
+   Reiniciar historial de movimientos ("Reiniciar movimientos" en
+   Configuración, y desde Panel Creador para cualquier negocio)
+   =========================================================================
+   Borra SOLO los documentos de negocios/{negocioId}/movimientos — no toca
+   productos, stock, sucursales ni configuración. El stock de cada producto
+   no se recalcula a partir del historial (se actualiza al momento con
+   runTransaction() dentro de registerMovement()), así que borrar el
+   historial no altera el stock actual: únicamente limpia el registro de
+   entradas/salidas que se ve en Dashboard, Entradas, Salidas y Reportes.
+   Se borra en tandas de 450 (el límite real de un batch de Firestore es 500)
+   porque un negocio con mucho historial puede superar ese límite de una. */
+function borrarMovimientosDeNegocio(db, negocioId) {
+  const coleccion = db.collection("negocios").doc(negocioId).collection("movimientos");
+  function borrarTanda() {
+    return coleccion.limit(450).get().then((snapshot) => {
+      if (snapshot.empty) return;
+      const batch = db.batch();
+      snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      return batch.commit().then(() => borrarTanda());
+    });
+  }
+  return borrarTanda();
+}
+
+/* Reinicia el historial de movimientos del negocio del Administrador logueado
+   (NEGOCIO_ID). No necesita el backend serverless: las Firestore Rules ya
+   permiten a un Administrador borrar en las subcolecciones de SU propio
+   negocio. */
+function reiniciarMovimientos(negocioId) {
+  if (!isFirebaseReady()) {
+    // ---- Modo demo (sin Firebase) ----
+    STORE.movements = [];
+    saveStore();
+    renderEntradas();
+    renderSalidas();
+    renderDashboard();
+    showToast("Se reinició el historial de movimientos.", "success");
+    return Promise.resolve();
+  }
+  const db = getFirestoreDb();
+  const objetivo = negocioId || NEGOCIO_ID;
+  return borrarMovimientosDeNegocio(db, objetivo)
+    .then(() => showToast("Se reinició el historial de movimientos.", "success"))
+    .catch((err) => {
+      console.error("No se pudo reiniciar el historial de movimientos.", err);
+      showToast("No se pudo reiniciar el historial. Probá de nuevo.", "error");
+    });
 }
 
 /* Paso 6D (sucursales): mismo patrón que productos/movimientos. */
@@ -962,7 +1033,21 @@ function visibleMovements() {
    que se registre la primera entrada/salida en una sucursal, momento en el
    que empieza a discriminarse. */
 function stockDeSucursal(p, sucursalId) {
-  return (p.stockPorSucursal && p.stockPorSucursal[sucursalId]) || 0;
+  // FIX (stock inicial invisible para salidas): un producto recién creado
+  // solo tiene "stock" (el total cargado en el alta) — "stockPorSucursal" ni
+  // siquiera existe todavía, porque recién se completa la primera vez que se
+  // registra una entrada/salida en una sucursal puntual. Antes, en ese estado
+  // "sin discriminar", esta función devolvía 0 pase lo que pase, así que una
+  // salida rechazaba con "no hay stock" aunque el producto mostrara stock
+  // disponible en el listado. Ahora, mientras el producto no tenga NINGUNA
+  // sucursal discriminada todavía, tratamos el total como disponible en
+  // cualquier sucursal (igual que ya se hacía en "stock actual" del listado).
+  // Apenas se registra el primer movimiento en una sucursal, stockPorSucursal
+  // deja de estar vacío y a partir de ahí cada sucursal usa su propio valor.
+  if (!p.stockPorSucursal || Object.keys(p.stockPorSucursal).length === 0) {
+    return p.stock || 0;
+  }
+  return p.stockPorSucursal[sucursalId] || 0;
 }
 /* Stock que le corresponde ver/usar al usuario logueado: el de su propia
    sucursal si tiene una asignada, o el total del negocio si es Administrador. */
@@ -978,7 +1063,7 @@ function applyRoleVisibility() {
 
 function loadStore() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey());
     if (!raw) {
       const isNewUser = localStorage.getItem(NEW_USER_FLAG) === "true";
       /* FIX: antes, si el flag NEW_USER_FLAG no estaba en "true" (algo que
@@ -992,7 +1077,7 @@ function loadStore() {
          arrancamos siempre en blanco. El catálogo de demo con productos de
          ejemplo queda solo para cuando la app corre sin Firebase configurado. */
       const seeded = (isFirebaseReady() || isNewUser) ? seedEmptyData() : seedData();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+      localStorage.setItem(getStorageKey(), JSON.stringify(seeded));
       return seeded;
     }
     return migrateStore(JSON.parse(raw));
@@ -1040,7 +1125,7 @@ function migrateStore(store) {
 
 function saveStore() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(STORE));
+    localStorage.setItem(getStorageKey(), JSON.stringify(STORE));
   } catch (err) {
     console.error("No se pudo guardar en el almacenamiento local.", err);
     showToast("No se pudo guardar. Verificá el espacio del navegador.", "error");
@@ -1084,11 +1169,23 @@ function formatDate(iso) {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function productStatus(p) {
-  const stock = stockVisible(p);
-  if (stock <= p.stockMinimo / 2) return "critical";
-  if (stock <= p.stockMinimo) return "low";
+function statusForStock(stock, stockMinimo) {
+  if (stock <= stockMinimo / 2) return "critical";
+  if (stock <= stockMinimo) return "low";
   return "ok";
+}
+
+function productStatus(p) {
+  return statusForStock(stockVisible(p), p.stockMinimo);
+}
+
+/* Igual que productStatus(), pero para un filtro de sucursal puntual (por ejemplo,
+   el selector de sucursal del Dashboard) en vez de la sucursal fija del usuario
+   logueado. Si sucursalId es "" o null, usa el total del negocio (todas las
+   sucursales), igual que ve un Administrador sin filtrar. */
+function productStatusFor(p, sucursalId) {
+  const stock = sucursalId ? stockDeSucursal(p, sucursalId) : stockVisible(p);
+  return statusForStock(stock, p.stockMinimo);
 }
 
 function statusLabel(status) {
@@ -1183,6 +1280,7 @@ function openModal(title, bodyHtml, onMount) {
 
 function closeModal() {
   stopActiveCameraScanner();
+  if (typeof cerrarDetalleNegocio === "function") cerrarDetalleNegocio();
   modalBackdrop.classList.remove("is-open");
   document.body.style.overflow = "";
   modalBody.innerHTML = "";
@@ -1343,21 +1441,23 @@ document.getElementById("globalSearch").addEventListener("input", (e) => {
 /* =========================================================================
    DASHBOARD
    ========================================================================= */
-function computeStats(categoria) {
+function computeStats(categoria, sucursalId) {
   const products = categoria ? STORE.products.filter((p) => p.categoria === categoria) : STORE.products;
+  const stockOf = (p) => (sucursalId ? stockDeSucursal(p, sucursalId) : stockVisible(p));
   const totalProducts = products.length;
-  const totalStock = products.reduce((sum, p) => sum + stockVisible(p), 0);
-  const totalValue = products.reduce((sum, p) => sum + stockVisible(p) * p.precio, 0);
-  const activeAlerts = products.filter((p) => productStatus(p) !== "ok").length;
+  const totalStock = products.reduce((sum, p) => sum + stockOf(p), 0);
+  const totalValue = products.reduce((sum, p) => sum + stockOf(p) * p.precio, 0);
+  const activeAlerts = products.filter((p) => productStatusFor(p, sucursalId) !== "ok").length;
   return { totalProducts, totalStock, totalValue, activeAlerts };
 }
 
-function categoryBreakdown(categoria) {
+function categoryBreakdown(categoria, sucursalId) {
   const map = {};
+  const stockOf = (p) => (sucursalId ? stockDeSucursal(p, sucursalId) : stockVisible(p));
   STORE.products
     .filter((p) => !categoria || p.categoria === categoria)
     .forEach((p) => {
-      map[p.categoria] = (map[p.categoria] || 0) + stockVisible(p);
+      map[p.categoria] = (map[p.categoria] || 0) + stockOf(p);
     });
   const total = Object.values(map).reduce((a, b) => a + b, 0) || 1;
   return Object.entries(map)
@@ -1365,8 +1465,8 @@ function categoryBreakdown(categoria) {
     .sort((a, b) => b.stock - a.stock);
 }
 
-function renderDonut(svgEl, legendEl, categoria) {
-  const data = categoryBreakdown(categoria);
+function renderDonut(svgEl, legendEl, categoria, sucursalId) {
+  const data = categoryBreakdown(categoria, sucursalId);
   svgEl.innerHTML = `<circle cx="21" cy="21" r="15.9" fill="none" stroke="#E9F8EE" stroke-width="6"></circle>`;
   let offset = 0;
   data.forEach((item, i) => {
@@ -1439,14 +1539,14 @@ function getFilteredDashboardMovements() {
 
 function renderDashboard() {
   populateDashboardFilters();
-  const { categoria } = getDashboardFilters();
-  const stats = computeStats(categoria);
+  const { categoria, sucursalId } = getDashboardFilters();
+  const stats = computeStats(categoria, sucursalId);
   animateValue(document.getElementById("statTotalProducts"), stats.totalProducts);
   animateValue(document.getElementById("statTotalStock"), stats.totalStock);
   document.getElementById("statTotalValue").textContent = formatCurrency(stats.totalValue);
   animateValue(document.getElementById("statActiveAlerts"), stats.activeAlerts);
 
-  renderDonut(document.getElementById("donutChart"), document.getElementById("donutLegend"), categoria);
+  renderDonut(document.getElementById("donutChart"), document.getElementById("donutLegend"), categoria, sucursalId);
 
   const filteredMovements = getFilteredDashboardMovements();
   const purchases = filteredMovements.filter((m) => m.tipo === "entrada").reduce((sum, m) => sum + m.cantidad, 0);
@@ -1487,11 +1587,12 @@ function renderDashboard() {
         .join("")
     : `<li class="text-sm text-slate-400 px-1">No hay movimientos para estos filtros.</li>`;
 
-  // Low stock table (respeta el filtro de categoría)
+  // Low stock table (respeta el filtro de categoría Y el de sucursal)
+  const stockDelFiltro = (p) => (sucursalId ? stockDeSucursal(p, sucursalId) : stockVisible(p));
   const lowStock = STORE.products
     .filter((p) => !categoria || p.categoria === categoria)
-    .filter((p) => productStatus(p) !== "ok")
-    .sort((a, b) => stockVisible(a) - stockVisible(b));
+    .filter((p) => productStatusFor(p, sucursalId) !== "ok")
+    .sort((a, b) => stockDelFiltro(a) - stockDelFiltro(b));
   const tbody = document.getElementById("lowStockTableBody");
   tbody.innerHTML = lowStock.length
     ? lowStock
@@ -1499,9 +1600,9 @@ function renderDashboard() {
           (p) => `<tr>
             <td class="font-medium text-ink">${p.nombre}</td>
             <td class="text-slate-400">${p.categoria}</td>
-            <td class="font-mono">${stockVisible(p)}</td>
+            <td class="font-mono">${stockDelFiltro(p)}</td>
             <td class="font-mono">${p.stockMinimo}</td>
-            <td>${statusTagHtml(productStatus(p))}</td>
+            <td>${statusTagHtml(productStatusFor(p, sucursalId))}</td>
           </tr>`
         )
         .join("")
@@ -1931,7 +2032,11 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
         if (!productSnap.exists) throw new Error("STOCK_PRODUCTO_INEXISTENTE");
         const data = productSnap.data();
         const stockPorSucursal = data.stockPorSucursal || {};
-        const stockActualSucursal = stockPorSucursal[sucursalId] || 0;
+        // FIX: mismo criterio que stockDeSucursal() más arriba — si el producto
+        // todavía no tiene ninguna sucursal discriminada, su stock inicial
+        // (cargado al crearlo) cuenta como disponible en cualquier sucursal.
+        const sinDiscriminarTodavia = Object.keys(stockPorSucursal).length === 0;
+        const stockActualSucursal = sinDiscriminarTodavia ? (data.stock || 0) : (stockPorSucursal[sucursalId] || 0);
         if (tipo === "salida" && cantidad > stockActualSucursal) {
           throw new Error(`STOCK_INSUFICIENTE:No hay suficiente stock de ${data.nombre} en esta sucursal (disponible: ${stockActualSucursal}).`);
         }
@@ -1966,8 +2071,14 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
 
   // ---- Modo demo (sin Firebase) ----
   if (!product.stockPorSucursal) product.stockPorSucursal = {};
+  // FIX: mismo criterio que en el modo Firestore — si todavía no hay ninguna
+  // sucursal discriminada, arrancamos desde el stock total (no desde 0), o
+  // una salida sobre un producto recién creado dejaría el stock de esa
+  // sucursal en negativo en vez de descontar del stock inicial real.
+  const sinDiscriminarTodavia = Object.keys(product.stockPorSucursal).length === 0;
+  const stockActualSucursal = sinDiscriminarTodavia ? (product.stock || 0) : (product.stockPorSucursal[sucursalId] || 0);
   const delta = tipo === "entrada" ? cantidad : -cantidad;
-  product.stockPorSucursal[sucursalId] = (product.stockPorSucursal[sucursalId] || 0) + delta;
+  product.stockPorSucursal[sucursalId] = stockActualSucursal + delta;
   product.stock += delta;
   // montoTotal = cantidad * precio unitario del producto en el momento del movimiento.
   // Es la base que usa el dashboard (Requerimiento 3) para sumar "Compras totales" y
@@ -2829,129 +2940,103 @@ function renderAlertas() {
    USUARIOS
    ========================================================================= */
 function roleBadgeColor(rol) {
-  return { Administrador: "status-critical", Editor: "status-low", Visualizador: "status-ok" }[rol] || "status-ok";
+  return { Administrador: "status-critical", Encargado: "status-low", Editor: "status-low", Visualizador: "status-ok" }[rol] || "status-ok";
 }
 
+/* La página "Usuarios" ahora refleja las cuentas REALES: el dueño de la cuenta
+   (Administrador, acceso ilimitado) y los encargados creados desde Sucursales →
+   "Nuevo encargado" (STORE.encargados / Firestore, con contraseña real). Ya no
+   existe un "Invitar usuario" separado acá: ese formulario guardaba un registro
+   solamente local, que nunca creaba una cuenta con la que alguien pudiera
+   iniciar sesión, así que un encargado invitado por ahí jamás iba a aparecer
+   con un estado real (activo/pendiente/etc.) — porque no era una cuenta real.
+   Ahora esta tabla usa la misma fuente de datos que "Encargados de sucursal"
+   (renderEncargados), así el estado siempre coincide entre las dos pantallas. */
 function renderUsuarios() {
   const tbody = document.getElementById("usersTableBody");
-  tbody.innerHTML = STORE.users
-    .map((u) => {
-      const sucursalLabel = u.rol === "Administrador" ? "Todas" : sucursalName(u.sucursalId);
-      const actions = u.isOwner
+  const empty = document.getElementById("usersEmptyState");
+  if (!tbody) return;
+
+  const pendientes = Object.values(PENDING_ENCARGADOS).map((p) => ({ ...p, id: null }));
+  const encargados = [...STORE.encargados, ...pendientes];
+
+  const filas = [];
+  if (CURRENT_USER) {
+    filas.push({
+      esDueno: true,
+      nombre: CURRENT_USER.nombre || CURRENT_USER.email || "Administrador",
+      email: CURRENT_USER.email || "",
+      rol: "Administrador",
+      sucursalLabel: "Todas",
+      estadoClass: "encargado-status-activo",
+      estadoLabel: isCreatorAccount() ? "Activo · ilimitado" : "Activo"
+    });
+  }
+  encargados.forEach((e) => {
+    const estadoClass = e.id
+      ? (e.activo === false ? "encargado-status-error" : "encargado-status-activo")
+      : (e.estado === "error" ? "encargado-status-error" : "encargado-status-pendiente");
+    const estadoLabel = e.id
+      ? (e.activo === false ? "Deshabilitado" : "Activo")
+      : (e.estado === "error" ? "Error al crear" : "Creando...");
+    filas.push({ esDueno: false, raw: e, nombre: e.nombre, email: e.email, rol: "Encargado", sucursalLabel: sucursalName(e.sucursalId), estadoClass, estadoLabel });
+  });
+
+  tbody.innerHTML = filas
+    .map((f) => {
+      const actions = f.esDueno
         ? `<span class="text-xs text-slate-400">Es tu cuenta</span>`
-        : `<button class="icon-btn" data-edit-user="${u.id}" aria-label="Editar"><i data-lucide="pencil" class="h-4 w-4"></i></button>
-           <button class="icon-btn danger" data-remove-user="${u.id}" aria-label="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>`;
+        : f.raw.id
+        ? `<button class="icon-btn" data-us-invite="${f.raw.id}" aria-label="Reenviar invitación"><i data-lucide="send" class="h-4 w-4"></i></button>
+           <button class="icon-btn danger" data-us-toggle="${f.raw.id}" data-disabled="${f.raw.activo === false}" aria-label="${f.raw.activo === false ? "Reactivar" : "Deshabilitar"}"><i data-lucide="${f.raw.activo === false ? "rotate-ccw" : "user-x"}" class="h-4 w-4"></i></button>`
+        : `<span class="text-xs text-slate-400">—</span>`;
       return `<tr>
         <td class="font-medium text-ink">
-          <span class="avatar-sm">${u.nombre.charAt(0)}</span>
-          ${u.nombre}${u.isOwner ? ` <span class="status-tag status-ok">Vos</span>` : ""}
+          <span class="avatar-sm">${(f.nombre || "?").charAt(0)}</span>
+          ${f.nombre}${f.esDueno ? ` <span class="status-tag status-ok">Vos</span>` : ""}
         </td>
-        <td class="text-slate-400">${u.email}</td>
-        <td><span class="status-tag ${roleBadgeColor(u.rol)}">${u.rol}</span></td>
-        <td class="text-slate-400">${sucursalLabel}</td>
+        <td class="text-slate-400">${f.email}</td>
+        <td><span class="status-tag ${roleBadgeColor(f.esDueno ? "Administrador" : "Encargado")}">${f.rol}</span></td>
+        <td class="text-slate-400">${f.sucursalLabel}</td>
+        <td class="${f.estadoClass} font-mono text-xs">${f.estadoLabel}</td>
         <td class="text-right">${actions}</td>
       </tr>`;
     })
     .join("");
 
+  if (empty) empty.classList.toggle("hidden", filas.length > 0);
   refreshIcons();
 
-  tbody.querySelectorAll("[data-remove-user]").forEach((btn) => {
+  tbody.querySelectorAll("[data-us-invite]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const user = STORE.users.find((u) => u.id === btn.getAttribute("data-remove-user"));
+      const enc = STORE.encargados.find((x) => x.id === btn.getAttribute("data-us-invite"));
+      if (enc) openInviteModal({ nombre: enc.nombre, email: enc.email, sucursalId: enc.sucursalId, password: null });
+    });
+  });
+
+  tbody.querySelectorAll("[data-us-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const encUid = btn.getAttribute("data-us-toggle");
+      const enc = STORE.encargados.find((x) => x.id === encUid);
+      const yaDeshabilitado = btn.getAttribute("data-disabled") === "true";
+      const accion = yaDeshabilitado ? "reactivar" : "deshabilitar";
       openConfirmModal(
-        "Quitar usuario",
-        `¿Seguro que querés quitar a <strong>${user.nombre}</strong> de tu cuenta de Boxly?`,
-        "Quitar",
-        () => {
-          STORE.users = STORE.users.filter((u) => u.id !== user.id);
-          saveStore();
-          renderUsuarios();
-          showToast("Usuario eliminado.", "success");
-        }
+        yaDeshabilitado ? "Reactivar encargado" : "Deshabilitar encargado",
+        `¿Seguro que querés ${accion} el acceso de <strong>${enc.nombre}</strong>? ${yaDeshabilitado ? "Va a poder volver a iniciar sesión." : "No va a poder iniciar sesión hasta que lo reactives."}`,
+        yaDeshabilitado ? "Reactivar" : "Deshabilitar",
+        () => toggleEncargado(encUid, !yaDeshabilitado)
       );
     });
   });
-
-  tbody.querySelectorAll("[data-edit-user]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const user = STORE.users.find((u) => u.id === btn.getAttribute("data-edit-user"));
-      openUserForm(user);
-    });
-  });
 }
 
-/* Formulario de invitar/editar usuario. Si "user" es null, crea uno nuevo. */
-function openUserForm(user) {
-  const isEdit = Boolean(user);
-  const sucursalOptions = STORE.sucursales.map((s) => `<option value="${s.id}">${s.nombre}</option>`).join("");
-
-  openModal(
-    isEdit ? "Editar usuario" : "Invitar usuario",
-    `<form id="userForm" class="movement-form">
-      <label class="form-label" style="margin-top:0">Nombre</label>
-      <input id="ufNombre" type="text" class="form-input" placeholder="Nombre y apellido" value="${isEdit ? user.nombre : ""}" required>
-      <label class="form-label">Email</label>
-      <input id="ufEmail" type="email" class="form-input" placeholder="nombre@negocio.com" value="${isEdit ? user.email : ""}" required>
-      <label class="form-label">Rol</label>
-      <select id="ufRol" class="form-input">
-        <option value="Editor">Editor</option>
-        <option value="Visualizador">Visualizador</option>
-        <option value="Administrador">Administrador</option>
-      </select>
-      <label class="form-label">Sucursal</label>
-      <select id="ufSucursal" class="form-input">${sucursalOptions}</select>
-      <p class="text-xs text-slate-400 mt-1">Como Administrador, este usuario va a poder ver y gestionar todas las sucursales.</p>
-      ${isEdit ? "" : `<p class="text-xs text-slate-400 mt-1"><i data-lucide="info" class="h-3 w-3 inline"></i> Por ahora esto guarda el registro dentro de tu cuenta, pero la persona invitada todavía necesita crear su propia cuenta de Boxly con este mismo email para poder entrar. Cuando conectemos Firebase, esto va a enviar la invitación real.</p>`}
-      <button type="submit" class="btn-primary w-full justify-center mt-4">
-        <i data-lucide="${isEdit ? "save" : "user-plus"}" class="h-4 w-4"></i>
-        ${isEdit ? "Guardar cambios" : "Invitar"}
-      </button>
-    </form>`,
-    (body) => {
-      const rolSelect = body.querySelector("#ufRol");
-      const sucursalSelect = body.querySelector("#ufSucursal");
-      const syncSucursalField = () => {
-        const esAdmin = rolSelect.value === "Administrador";
-        sucursalSelect.disabled = esAdmin;
-        sucursalSelect.parentElement && null; // noop, mantiene estructura
-      };
-      rolSelect.value = isEdit ? user.rol : "Editor";
-      sucursalSelect.value = isEdit && user.sucursalId ? user.sucursalId : (STORE.sucursales[0] ? STORE.sucursales[0].id : "");
-      syncSucursalField();
-      rolSelect.addEventListener("change", syncSucursalField);
-
-      body.querySelector("#userForm").addEventListener("submit", (e) => {
-        e.preventDefault();
-        const nombre = body.querySelector("#ufNombre").value.trim();
-        const email = body.querySelector("#ufEmail").value.trim().toLowerCase();
-        const rol = rolSelect.value;
-        const sucursalId = rol === "Administrador" ? null : sucursalSelect.value;
-
-        const emailTaken = STORE.users.some((u) => u.email.toLowerCase() === email && (!isEdit || u.id !== user.id));
-        if (emailTaken) {
-          showToast("Ya hay un usuario con ese email.", "error");
-          return;
-        }
-
-        if (isEdit) {
-          user.nombre = nombre;
-          user.email = email;
-          user.rol = rol;
-          user.sucursalId = sucursalId;
-        } else {
-          STORE.users.push({ id: uid("u"), uid: null, nombre, email, rol, sucursalId, isOwner: false });
-        }
-        saveStore();
-        closeModal();
-        renderUsuarios();
-        showToast(isEdit ? "Usuario actualizado." : "Usuario invitado.", "success");
-      });
-    }
-  );
-}
-
-document.getElementById("openAddUser").addEventListener("click", () => openUserForm(null));
+/* El botón de arriba de "Usuarios" ya no abre un formulario propio: lleva
+   directo a Sucursales y abre el mismo modal de "Nuevo encargado" que ya
+   crea la cuenta real (con contraseña, Firebase Auth, todo). */
+document.getElementById("goToSucursalesForInvite").addEventListener("click", () => {
+  switchSection("sucursales");
+  requestAnimationFrame(() => openEncargadoForm());
+});
 
 /* =========================================================================
    SUCURSALES
@@ -3219,10 +3304,12 @@ async function getIdTokenSafe() {
   return null;
 }
 
-/* Contraseña temporal aleatoria y segura — nunca usar el nombre de la
-   sucursal ni ningún dato público como contraseña: cualquiera que lo sepa
-   podría entrar. El encargado la recibe por WhatsApp/email y puede
-   cambiarla apenas entra (botón "¿Olvidaste tu contraseña?" en login.html). */
+/* Contraseña generada al azar para el encargado nuevo — el encargado la usa
+   directamente para entrar y sigue usándola (no hay pantalla de "elegí tu
+   propia contraseña" en el primer ingreso). Si en algún momento quiere
+   cambiarla, usa "¿Olvidaste tu contraseña?" en login.html. Nunca usar el
+   nombre de la sucursal ni ningún dato público como contraseña: cualquiera
+   que lo sepa podría entrar. */
 function generarPasswordTemporal() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   let pass = "";
@@ -3231,18 +3318,18 @@ function generarPasswordTemporal() {
 }
 
 /* Arma el mensaje de invitación (mismo texto para WhatsApp y email) con el
-   nombre de la sucursal, el email registrado y la contraseña temporal, y
-   abre un modal con un link de WhatsApp y un link mailto: ya completados
-   para que el Administrador se los mande al encargado con un clic. No hay
-   un servicio de envío de emails propio conectado, así que en vez de
-   "enviar" desde el servidor, se arma el mensaje y se abre el cliente de
+   nombre de la sucursal, el email registrado y la contraseña, y abre un
+   modal con un link de WhatsApp y un link mailto: ya completados para que
+   el Administrador se los mande al encargado con un clic. No hay un
+   servicio de envío de emails propio conectado, así que en vez de "enviar"
+   desde el servidor, se arma el mensaje y se abre el cliente de
    WhatsApp/email del propio Administrador con todo precargado. */
 function openInviteModal({ nombre, email, sucursalId, password, telefono }) {
   const sucursal = sucursalName(sucursalId);
   const loginUrl = `${window.location.origin}/login.html`;
   const lineaPassword = password
-    ? `Contraseña temporal: ${password} (te va a pedir cambiarla en tu primer ingreso)`
-    : `Usá la contraseña temporal que te compartieron antes, o tocá "¿Olvidaste tu contraseña?" en el login para generar una nueva.`;
+    ? `Contraseña: ${password}`
+    : `Usá la contraseña que te compartieron antes, o tocá "¿Olvidaste tu contraseña?" en el login para generar una nueva.`;
   const mensaje = `Hola ${nombre}! Te invitamos a usar Boxly como encargado/a de la sucursal "${sucursal}".\n\nIngresá en: ${loginUrl}\nEmail: ${email}\n${lineaPassword}\n\nDesde ahí vas a ver los movimientos de tu sucursal en tiempo real.`;
 
   const whatsappUrl = telefono
@@ -3314,7 +3401,7 @@ function openEncargadoForm() {
       <input id="efEmail" type="email" class="form-input" placeholder="marina@negocio.com" required>
       <label class="form-label">Teléfono (WhatsApp, opcional)</label>
       <input id="efTelefono" type="tel" class="form-input" placeholder="Ej: 5492613863563">
-      <label class="form-label">Contraseña temporal</label>
+      <label class="form-label">Contraseña</label>
       <div class="password-field">
         <input id="efPassword" type="text" class="form-input" placeholder="Mínimo 6 caracteres" minlength="6" required value="${generarPasswordTemporal()}">
         <button type="button" id="efRegenPassword" class="password-toggle" aria-label="Generar otra contraseña"><i data-lucide="refresh-cw" class="h-4 w-4"></i></button>
@@ -3420,6 +3507,18 @@ document.getElementById("settingsForm").addEventListener("submit", (e) => {
 
 document.getElementById("cfgLogoBtn").addEventListener("click", () => {
   document.getElementById("cfgLogoInput").click();
+});
+
+/* "Zona de riesgo": reiniciar el historial de entradas/salidas del PROPIO
+   negocio. Disponible para cualquier Administrador (incluida la cuenta
+   creadora sobre su propia cuenta) — no toca productos, stock ni sucursales. */
+document.getElementById("reiniciarMovimientosBtn").addEventListener("click", () => {
+  openConfirmModal(
+    "Reiniciar historial de movimientos",
+    "Esto borra TODO el historial de entradas y salidas registrado hasta ahora. No modifica el stock actual de tus productos ni tu catálogo, solo limpia el registro que ves en Dashboard, Entradas, Salidas y Reportes. Esta acción no se puede deshacer. ¿Querés continuar?",
+    "Sí, reiniciar",
+    () => reiniciarMovimientos()
+  );
 });
 
 document.getElementById("cfgLogoInput").addEventListener("change", (e) => {
@@ -3559,9 +3658,9 @@ const TOUR_STEPS = [
   {
     icon: "users",
     title: "Usuarios",
-    desc: "Invitá a tu equipo con distintos roles (Administrador, Editor, Visualizador) y asignales una sucursal específica.",
+    desc: "Acá ves quién tiene acceso a tu cuenta: vos como Administrador y los encargados que invites, con su sucursal y estado real.",
     section: "usuarios",
-    target: "#openAddUser",
+    target: "#goToSucursalesForInvite",
     adminOnly: true
   },
   {

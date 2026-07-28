@@ -615,19 +615,21 @@
       <section id="section-usuarios" class="app-section">
         <div class="panel">
           <div class="table-toolbar">
-            <p class="text-sm text-slate-500">Gestioná quién tiene acceso a tu cuenta de Boxly, con qué rol y en qué sucursal</p>
-            <button id="openAddUser" class="btn-primary">
+            <p class="text-sm text-slate-500">Quién tiene acceso a tu cuenta de Boxly, con qué rol, en qué sucursal y su estado.</p>
+            <button id="goToSucursalesForInvite" class="btn-primary">
               <i data-lucide="user-plus" class="h-4 w-4"></i>
-              Invitar usuario
+              Nuevo encargado
             </button>
           </div>
+          <p class="text-xs text-slate-400 mt-1">Para invitar gente nueva, hacelo desde <strong>Sucursales → Encargados de sucursal</strong>: ahí se crea el acceso real, con contraseña y todo.</p>
           <div class="overflow-x-auto mt-3">
             <table class="app-table">
               <thead>
-                <tr><th>Usuario</th><th>Email</th><th>Rol</th><th>Sucursal</th><th class="text-right">Acciones</th></tr>
+                <tr><th>Usuario</th><th>Email</th><th>Rol</th><th>Sucursal</th><th>Estado</th><th class="text-right">Acciones</th></tr>
               </thead>
               <tbody id="usersTableBody"></tbody>
             </table>
+            <p id="usersEmptyState" class="empty-state hidden">Todavía no invitaste a nadie más. Creá un encargado desde Sucursales.</p>
           </div>
         </div>
       </section>
@@ -837,6 +839,17 @@
             Guardar cambios
           </button>
         </form>
+
+        <div class="panel mt-5" style="border-color:#FCA5A5">
+          <div class="panel-header"><p class="panel-title" style="color:#DC2626">Zona de riesgo</p></div>
+          <p class="text-sm text-slate-500 mt-1 leading-relaxed">
+            Reiniciá el historial de entradas y salidas de tu negocio. No borra tus productos ni tu stock actual, solo el registro de movimientos. No se puede deshacer.
+          </p>
+          <button type="button" id="reiniciarMovimientosBtn" class="btn-danger mt-3">
+            <i data-lucide="trash-2" class="h-4 w-4"></i>
+            Reiniciar historial de movimientos
+          </button>
+        </div>
       </section>
 
       <!-- ============ AYUDA Y SOPORTE ============ -->

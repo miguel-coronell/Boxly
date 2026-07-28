@@ -77,33 +77,21 @@ function setAuthUser(user, opts = {}) {
   window.location.href = "app.html";
 }
 
-/* ---------------------------- Cambio de contraseña obligatorio (primer ingreso) ----------------------------
-   Cuando el Administrador invita a un encargado (ver "Nuevo encargado de sucursal" en
-   app.js -> createEncargado() -> /api/create-encargado.js), esa función serverless debe
-   crear su documento users/{uid} en Firestore con debeCambiarPassword: true, además del
-   rol y la sucursalId. Acá, apenas Firebase confirma el login por email/contraseña, leemos
-   ese documento ANTES de dejar pasar al encargado al panel: si el flag está en true, se
-   lo frena en esta misma pantalla con un formulario obligatorio para elegir su propia
-   contraseña, y recién ahí se lo redirige a app.html. El login con Google no pasa por acá
-   porque no existe concepto de "contraseña temporal" en ese flujo. */
-let PENDING_LOGIN_USER = null;
-
+/* ---------------------------- Post-login ----------------------------
+   Simplificado a pedido: ya no existe pantalla de "elegí tu propia
+   contraseña" en el primer ingreso. El encargado usa siempre la contraseña
+   que le asignó el Administrador al invitarlo (ver create-encargado.js) —
+   si necesita cambiarla, usa "¿Olvidaste tu contraseña?" como cualquier
+   otra cuenta. Acá solo leemos su perfil de Firestore (para el nombre) y
+   entramos directo. */
 function handlePostLogin(firebaseUser, provider) {
   const db = getFirestoreDb();
   db.collection("users").doc(firebaseUser.uid).get()
-    .then((doc) => {
-      const data = doc.exists ? doc.data() : {};
-      if (data.debeCambiarPassword) {
-        PENDING_LOGIN_USER = { firebaseUser, provider, data };
-        showForcePasswordPanel();
-        return;
-      }
-      finishLogin(firebaseUser, provider, data);
-    })
+    .then((doc) => finishLogin(firebaseUser, provider, doc.exists ? doc.data() : {}))
     .catch((err) => {
-      console.error("No se pudo verificar el estado de la cuenta antes de entrar.", err);
+      console.error("No se pudo leer el perfil de la cuenta antes de entrar.", err);
       // Si falla la lectura (p.ej. reglas de Firestore o sin conexión), no dejamos a
-      // nadie afuera del panel por un error de red — entra como si el flag no existiera.
+      // nadie afuera del panel por un error de red — entra con lo que hay disponible.
       finishLogin(firebaseUser, provider, {});
     });
 }
@@ -117,48 +105,6 @@ function finishLogin(firebaseUser, provider, userData) {
     provider
   });
 }
-
-function showForcePasswordPanel() {
-  document.getElementById("authTabs").classList.add("hidden");
-  document.getElementById("googleBtn").classList.add("hidden");
-  document.getElementById("authDivider").classList.add("hidden");
-  document.getElementById("authFooterLink").classList.add("hidden");
-  document.getElementById("panel-login").classList.remove("active");
-  document.getElementById("panel-registro").classList.remove("active");
-  document.getElementById("panel-force-password").classList.add("active");
-  showToast("Por seguridad, elegí tu propia contraseña para continuar.", "success");
-}
-
-document.getElementById("forcePasswordForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (!PENDING_LOGIN_USER) return;
-  const pass1 = document.getElementById("forceNewPassword").value;
-  const pass2 = document.getElementById("forceNewPasswordConfirm").value;
-
-  if (pass1.length < 6) {
-    showToast("La contraseña debe tener al menos 6 caracteres.", "error");
-    return;
-  }
-  if (pass1 !== pass2) {
-    showToast("Las dos contraseñas no coinciden.", "error");
-    return;
-  }
-
-  const { firebaseUser, provider, data } = PENDING_LOGIN_USER;
-  const submitBtn = document.querySelector("#forcePasswordForm button[type=submit]");
-  submitBtn.disabled = true;
-
-  firebaseUser.updatePassword(pass1)
-    .then(() => getFirestoreDb().collection("users").doc(firebaseUser.uid).set({ debeCambiarPassword: false }, { merge: true }))
-    .then(() => {
-      showToast("Contraseña actualizada. ¡Bienvenido/a!", "success");
-      finishLogin(firebaseUser, provider, data);
-    })
-    .catch((err) => {
-      submitBtn.disabled = false;
-      showToast(mapFirebaseError(err), "error");
-    });
-});
 
 /* ---------------------------- Tabs (login / registro) ---------------------------- */
 const tabs = document.querySelectorAll("[data-auth-tab]");
@@ -324,9 +270,16 @@ function mapFirebaseError(err) {
     "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.",
     "auth/invalid-email": "El email no es válido.",
     "auth/popup-closed-by-user": "Cerraste la ventana de Google antes de completar el ingreso.",
-    "auth/requires-recent-login": "Por seguridad, volvé a iniciar sesión con tu contraseña temporal y probá de nuevo."
+    "auth/requires-recent-login": "Por seguridad, volvé a iniciar sesión con tu contraseña temporal y probá de nuevo.",
+    "auth/network-request-failed": "No hay conexión con el servidor de autenticación. Revisá tu internet y probá de nuevo.",
+    "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "La configuración de Firebase (firebase-config.js) tiene una API key inválida.",
+    "auth/invalid-api-key": "La configuración de Firebase (firebase-config.js) tiene una API key inválida.",
+    "auth/operation-not-allowed": "El método de acceso con email y contraseña no está habilitado en Firebase Authentication."
   };
-  return map[err.code] || "Ocurrió un error. Probá de nuevo en unos segundos.";
+  // Si el código no está mapeado, mostramos igual el código real en vez de un
+  // mensaje genérico — así, ante un 400 de Identity Toolkit no mapeado, se ve
+  // qué pasó en vez de tener que reproducirlo con la consola abierta.
+  return map[err.code] || (err.code ? `Ocurrió un error (${err.code}). Probá de nuevo.` : "Ocurrió un error. Probá de nuevo en unos segundos.");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
