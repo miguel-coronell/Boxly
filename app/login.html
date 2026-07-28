@@ -49,7 +49,7 @@
         <img src="../img/boxly-logo.png" alt="Boxly" class="auth-logo-img">
       </div>
 
-      <div class="auth-tabs">
+      <div class="auth-tabs" id="authTabs">
         <button type="button" class="auth-tab active" data-auth-tab="login">Iniciar sesión</button>
         <button type="button" class="auth-tab" data-auth-tab="registro">Crear cuenta</button>
       </div>
@@ -59,7 +59,7 @@
         Continuar con Google
       </button>
 
-      <div class="auth-divider">o con tu email</div>
+      <div class="auth-divider" id="authDivider">o con tu email</div>
 
       <!-- -------- LOGIN -------- -->
       <div id="panel-login" class="auth-panel active">
@@ -104,7 +104,32 @@
         </form>
       </div>
 
-      <p class="auth-footer-link">
+      <!-- -------- CAMBIO DE CONTRASEÑA OBLIGATORIO (primer ingreso con clave temporal) -------- -->
+      <div id="panel-force-password" class="auth-panel">
+        <p class="text-sm text-slate-500 mb-3">Por seguridad, elegí tu propia contraseña antes de continuar. Es la última vez que vas a necesitar la temporal.</p>
+        <form id="forcePasswordForm" class="movement-form">
+          <label class="form-label" style="margin-top:0">Nueva contraseña</label>
+          <div class="password-field">
+            <input id="forceNewPassword" type="password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="new-password">
+            <button type="button" class="password-toggle" data-toggle-pass="forceNewPassword" aria-label="Mostrar contraseña">
+              <i data-lucide="eye" class="h-4 w-4"></i>
+            </button>
+          </div>
+          <label class="form-label">Confirmá tu nueva contraseña</label>
+          <div class="password-field">
+            <input id="forceNewPasswordConfirm" type="password" class="form-input" placeholder="Repetí la contraseña" required minlength="6" autocomplete="new-password">
+            <button type="button" class="password-toggle" data-toggle-pass="forceNewPasswordConfirm" aria-label="Mostrar contraseña">
+              <i data-lucide="eye" class="h-4 w-4"></i>
+            </button>
+          </div>
+          <button type="submit" class="btn-primary w-full justify-center mt-4">
+            <i data-lucide="shield-check" class="h-4 w-4"></i>
+            Guardar y entrar
+          </button>
+        </form>
+      </div>
+
+      <p class="auth-footer-link" id="authFooterLink">
         <span id="authSwitchLabel">¿No tenés cuenta?</span>
         <a href="#" id="authSwitchLink">Creá una gratis</a>
       </p>

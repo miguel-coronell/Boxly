@@ -115,6 +115,11 @@ function iniciarSincronizacionFirestore() {
   db.collection("users").doc(CURRENT_USER.uid).get()
     .then((userDoc) => {
       NEGOCIO_ID = (userDoc.exists && userDoc.data().negocioId) || CURRENT_USER.uid;
+      // Recién acá sabemos, con certeza, si quien inició sesión es el Administrador
+      // dueño de la cuenta o un encargado invitado — y si es encargado, a qué
+      // sucursal quedó limitado. Hasta este punto, ensureOwnerUser() lo había
+      // dejado en un estado "pendiente" sin permisos (fail-closed).
+      if (userDoc.exists) syncCurrentUserFromFirestore(userDoc.data());
       suscribirProductosFirestore(db);
       suscribirMovimientosFirestore(db);
       suscribirSucursalesFirestore(db);
@@ -153,10 +158,26 @@ function suscribirProductosFirestore(db, _retried) {
 
 /* Paso 6C: movimientos en tiempo real. El stock de cada producto se actualiza
    con runTransaction() dentro de registerMovement(), no acá — este listener solo
-   refleja en pantalla lo que ya quedó confirmado en Firestore. */
+   refleja en pantalla lo que ya quedó confirmado en Firestore.
+
+   FIX (encargados no veían Entradas/Salidas): este listener escuchaba TODA la
+   colección "movimientos" del negocio sin filtro. Las Firestore Rules exigen
+   que, para un encargado (esEncargado()), CADA documento que devuelva la query
+   tenga su misma sucursalId — pero como acá no había ningún .where("sucursalId",
+   "==", ...), la query intentaba traer movimientos de TODAS las sucursales, la
+   regla rechazaba los que no eran de la suya, y Firestore denegaba la consulta
+   COMPLETA con permission-denied (así funcionan los queries de Firestore: si
+   un solo documento no cumple la regla, se cae toda la lista, no solo ese
+   documento). Por eso a los invitados el historial de salidas/entradas no se
+   actualizaba nunca. La solución es agregar acá el mismo filtro que ya exige
+   la regla: si el usuario logueado tiene una sucursal fija (no es
+   Administrador), se agrega .where("sucursalId","==", esa sucursal). */
 function suscribirMovimientosFirestore(db, _retried) {
   if (unsubscribeMovimientos) unsubscribeMovimientos();
-  unsubscribeMovimientos = db.collection("negocios").doc(NEGOCIO_ID).collection("movimientos")
+  const sucursalFija = currentUserSucursalId();
+  let query = db.collection("negocios").doc(NEGOCIO_ID).collection("movimientos");
+  if (sucursalFija) query = query.where("sucursalId", "==", sucursalFija);
+  unsubscribeMovimientos = query
     .onSnapshot(
       (snapshot) => {
         STORE.movements = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -819,33 +840,87 @@ let STORE = loadStore();
    "uid" (el mismo id que devuelve el login). Si ya existía un usuario cargado con el mismo
    email (por ejemplo, alguien migrando de una versión vieja), lo adopta como dueño en vez
    de crear un duplicado. */
+/* ---------------------------- Dueño de la cuenta (admin real) ----------------------------
+   Garantiza que quien está logueado (CURRENT_USER, con su email real de registro) sea
+   siempre el Administrador de esta cuenta, y no un usuario de ejemplo. Se identifica por
+   "uid" (el mismo id que devuelve el login). Si ya existía un usuario cargado con el mismo
+   email (por ejemplo, alguien migrando de una versión vieja), lo adopta como dueño en vez
+   de crear un duplicado.
+
+   FIX DE SEGURIDAD (roles): esta función forzaba rol "Administrador" para CUALQUIER uid
+   logueado, sin importar quién fuera. Eso estaba bien en modo demo (localStorage), donde
+   solo existe un usuario posible: el dueño de la cuenta. Pero con Firebase activo, quien
+   inicia sesión puede perfectamente ser un encargado invitado (rol "encargado"/"Editor"/
+   "Visualizador", con su propia sucursalId) — y como esta función se ejecuta de forma
+   síncrona apenas carga el script, sin esperar a Firestore, terminaba convirtiendo a
+   CUALQUIER encargado en Administrador dentro de STORE.users, mostrándole Usuarios,
+   Sucursales, Mi Plan, Configuración y el filtro de todas las sucursales — exactamente lo
+   que NO tiene que ver. Ahora, con Firebase activo, esta función NO asigna rol: crea (o
+   deja) el registro en estado "pendiente" (rol: null), que isCurrentUserAdmin() y
+   currentUserSucursalId() tratan igual que "no administrador" — o sea, todo lo sensible
+   queda oculto por defecto (fail-closed) hasta que syncCurrentUserFromFirestore() lo
+   reemplace por el rol y la sucursalId reales leídos de users/{uid} en Firestore. */
 function ensureOwnerUser() {
   if (!CURRENT_USER) return;
+  const firebaseMode = isFirebaseReady();
   let owner = STORE.users.find((u) => u.uid && u.uid === CURRENT_USER.uid);
   if (!owner && CURRENT_USER.email) {
     owner = STORE.users.find((u) => u.email && u.email.toLowerCase() === CURRENT_USER.email.toLowerCase());
   }
   if (owner) {
     owner.uid = CURRENT_USER.uid;
-    owner.isOwner = true;
-    owner.rol = "Administrador";
-    owner.sucursalId = null;
     owner.nombre = CURRENT_USER.nombre || owner.nombre;
     owner.email = CURRENT_USER.email || owner.email;
+    if (!firebaseMode) {
+      owner.isOwner = true;
+      owner.rol = "Administrador";
+      owner.sucursalId = null;
+    }
+    // En modo Firebase, si ya tenía rol/sucursalId (de una sincronización previa
+    // en esta misma sesión de navegador), se respetan tal cual — no se pisan acá.
   } else {
     STORE.users.unshift({
       id: uid("u"),
       uid: CURRENT_USER.uid,
       nombre: CURRENT_USER.nombre || CURRENT_USER.email || "Administrador",
       email: CURRENT_USER.email || "",
-      rol: "Administrador",
+      rol: firebaseMode ? null : "Administrador",
       sucursalId: null,
-      isOwner: true
+      isOwner: !firebaseMode
     });
   }
   saveStore();
 }
 ensureOwnerUser();
+
+/* Pisa el registro de CURRENT_USER en STORE.users con el rol y la sucursalId REALES
+   leídos desde su documento users/{uid} en Firestore (fuente de verdad). Se llama desde
+   iniciarSincronizacionFirestore() apenas responde la lectura. Si el documento no tiene
+   "rol" guardado (cuentas viejas del Administrador, migradas antes de que existiera este
+   campo), se asume Administrador — así no se rompe el acceso del dueño original de la
+   cuenta. */
+function syncCurrentUserFromFirestore(userDocData) {
+  if (!CURRENT_USER || !userDocData) return;
+  let record = STORE.users.find((u) => u.uid === CURRENT_USER.uid);
+  if (!record) {
+    record = { id: uid("u"), uid: CURRENT_USER.uid };
+    STORE.users.unshift(record);
+  }
+  record.nombre = userDocData.nombre || record.nombre || CURRENT_USER.nombre;
+  record.email = userDocData.email || record.email || CURRENT_USER.email;
+  record.rol = userDocData.rol || "Administrador";
+  record.sucursalId = record.rol === "Administrador" ? null : (userDocData.sucursalId || null);
+  record.isOwner = record.rol === "Administrador";
+  saveStore();
+
+  // Todo lo que ya se haya pintado en pantalla mientras el rol era "pendiente"
+  // (sin saber todavía si es admin o no) se vuelve a evaluar con el rol real.
+  applyRoleVisibility();
+  if (document.getElementById("dashFiltroSucursal")) populateDashboardFilters();
+  const activeLink = document.querySelector(".sidebar-link.active");
+  const activeSection = activeLink ? activeLink.getAttribute("data-target") : "dashboard";
+  switchSection(activeSection, { keepScroll: true });
+}
 
 function currentUserRecord() {
   return CURRENT_USER ? STORE.users.find((u) => u.uid === CURRENT_USER.uid) : null;
@@ -873,6 +948,29 @@ function visibleMovements() {
   const sucursalId = currentUserSucursalId();
   return sucursalId ? STORE.movements.filter((m) => m.sucursalId === sucursalId) : STORE.movements;
 }
+
+/* ---------------------------- Stock por sucursal ----------------------------
+   FIX: cada producto solo tenía un campo "stock" GLOBAL, compartido por todas
+   las sucursales del negocio — por eso a un encargado le aparecía "el stock
+   general de todas las sucursales" en vez del propio. Ahora cada producto
+   además guarda "stockPorSucursal": { [sucursalId]: cantidad }, que se
+   actualiza en registerMovement() cada vez que se registra una entrada o
+   salida en una sucursal puntual. El campo "stock" se sigue manteniendo como
+   el TOTAL sumado de todas las sucursales (lo que ve el Administrador). Los
+   productos que ya existían de antes de este cambio no tienen todavía
+   stockPorSucursal cargado — su stock "viejo" queda como total general hasta
+   que se registre la primera entrada/salida en una sucursal, momento en el
+   que empieza a discriminarse. */
+function stockDeSucursal(p, sucursalId) {
+  return (p.stockPorSucursal && p.stockPorSucursal[sucursalId]) || 0;
+}
+/* Stock que le corresponde ver/usar al usuario logueado: el de su propia
+   sucursal si tiene una asignada, o el total del negocio si es Administrador. */
+function stockVisible(p) {
+  const sucursalId = currentUserSucursalId();
+  return sucursalId ? stockDeSucursal(p, sucursalId) : p.stock;
+}
+
 function applyRoleVisibility() {
   const admin = isCurrentUserAdmin();
   document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", !admin));
@@ -987,8 +1085,9 @@ function formatDate(iso) {
 }
 
 function productStatus(p) {
-  if (p.stock <= p.stockMinimo / 2) return "critical";
-  if (p.stock <= p.stockMinimo) return "low";
+  const stock = stockVisible(p);
+  if (stock <= p.stockMinimo / 2) return "critical";
+  if (stock <= p.stockMinimo) return "low";
   return "ok";
 }
 
@@ -1141,13 +1240,9 @@ function switchSection(target, opts = {}) {
   if (document.body.classList.contains("trial-expired-lock") && target !== "mi-plan" && target !== "ayuda") {
     target = "mi-plan";
   }
-  if ((target === "usuarios" || target === "sucursales" || target === "mi-plan") && !isCurrentUserAdmin()) {
-    target = "dashboard";
-  }
- 
-
-
-  if ((target === "usuarios" || target === "sucursales" || target === "mi-plan") && !isCurrentUserAdmin()) {
+  const ADMIN_ONLY_SECTIONS = ["usuarios", "sucursales", "mi-plan", "configuracion"];
+  if (ADMIN_ONLY_SECTIONS.includes(target) && !isCurrentUserAdmin()) {
+    showToast("No tenés permisos de administrador para ver esta sección.", "error");
     target = "dashboard";
   }
   sections.forEach((s) => s.classList.toggle("active", s.id === `section-${target}`));
@@ -1251,8 +1346,8 @@ document.getElementById("globalSearch").addEventListener("input", (e) => {
 function computeStats(categoria) {
   const products = categoria ? STORE.products.filter((p) => p.categoria === categoria) : STORE.products;
   const totalProducts = products.length;
-  const totalStock = products.reduce((sum, p) => sum + p.stock, 0);
-  const totalValue = products.reduce((sum, p) => sum + p.stock * p.precio, 0);
+  const totalStock = products.reduce((sum, p) => sum + stockVisible(p), 0);
+  const totalValue = products.reduce((sum, p) => sum + stockVisible(p) * p.precio, 0);
   const activeAlerts = products.filter((p) => productStatus(p) !== "ok").length;
   return { totalProducts, totalStock, totalValue, activeAlerts };
 }
@@ -1262,7 +1357,7 @@ function categoryBreakdown(categoria) {
   STORE.products
     .filter((p) => !categoria || p.categoria === categoria)
     .forEach((p) => {
-      map[p.categoria] = (map[p.categoria] || 0) + p.stock;
+      map[p.categoria] = (map[p.categoria] || 0) + stockVisible(p);
     });
   const total = Object.values(map).reduce((a, b) => a + b, 0) || 1;
   return Object.entries(map)
@@ -1396,7 +1491,7 @@ function renderDashboard() {
   const lowStock = STORE.products
     .filter((p) => !categoria || p.categoria === categoria)
     .filter((p) => productStatus(p) !== "ok")
-    .sort((a, b) => a.stock - b.stock);
+    .sort((a, b) => stockVisible(a) - stockVisible(b));
   const tbody = document.getElementById("lowStockTableBody");
   tbody.innerHTML = lowStock.length
     ? lowStock
@@ -1404,7 +1499,7 @@ function renderDashboard() {
           (p) => `<tr>
             <td class="font-medium text-ink">${p.nombre}</td>
             <td class="text-slate-400">${p.categoria}</td>
-            <td class="font-mono">${p.stock}</td>
+            <td class="font-mono">${stockVisible(p)}</td>
             <td class="font-mono">${p.stockMinimo}</td>
             <td>${statusTagHtml(productStatus(p))}</td>
           </tr>`
@@ -1560,7 +1655,7 @@ function renderProductos() {
         <td class="font-mono text-xs text-slate-400">${p.sku}</td>
         <td class="font-medium text-ink">${p.nombre}</td>
         <td class="text-slate-400">${p.categoria}</td>
-        <td class="font-mono">${p.stock}</td>
+        <td class="font-mono">${stockVisible(p)}</td>
         <td class="font-mono">${p.stockMinimo}</td>
         <td class="font-mono">${formatMoney(p.precio)}</td>
         <td>${statusTagHtml(productStatus(p))}</td>
@@ -1737,7 +1832,7 @@ function populateProductSelect(selectEl, categoria) {
   const current = selectEl.value;
   const list = STORE.products.filter((p) => !categoria || p.categoria === categoria);
   selectEl.innerHTML = list.length
-    ? list.map((p) => `<option value="${p.id}">${p.nombre} · ${p.sku} · ${p.categoria} (stock: ${p.stock})</option>`).join("")
+    ? list.map((p) => `<option value="${p.id}">${p.nombre} · ${p.sku} · ${p.categoria} (stock: ${stockVisible(p)})</option>`).join("")
     : `<option value="">No hay productos en esta categoría</option>`;
   if (list.some((p) => p.id === current)) selectEl.value = current;
 }
@@ -1816,8 +1911,13 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
     return;
   }
 
-  if (tipo === "salida" && cantidad > product.stock) {
-    showToast(`No hay suficiente stock de ${product.nombre} (disponible: ${product.stock}).`, "error");
+  // FIX: la validación de "hay stock suficiente" comparaba contra el TOTAL del
+  // negocio (product.stock), no contra lo que hay realmente en la sucursal
+  // elegida. Ahora se valida contra stockDeSucursal(), que es lo único que un
+  // encargado puede vender/mover.
+  const stockDeEstaSucursal = stockDeSucursal(product, sucursalId);
+  if (tipo === "salida" && cantidad > stockDeEstaSucursal) {
+    showToast(`No hay suficiente stock de ${product.nombre} en esta sucursal (disponible: ${stockDeEstaSucursal}).`, "error");
     return;
   }
 
@@ -1830,13 +1930,19 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
       return transaction.get(productRef).then((productSnap) => {
         if (!productSnap.exists) throw new Error("STOCK_PRODUCTO_INEXISTENTE");
         const data = productSnap.data();
-        const stockActual = data.stock || 0;
-        if (tipo === "salida" && cantidad > stockActual) {
-          throw new Error(`STOCK_INSUFICIENTE:No hay suficiente stock de ${data.nombre} (disponible: ${stockActual}).`);
+        const stockPorSucursal = data.stockPorSucursal || {};
+        const stockActualSucursal = stockPorSucursal[sucursalId] || 0;
+        if (tipo === "salida" && cantidad > stockActualSucursal) {
+          throw new Error(`STOCK_INSUFICIENTE:No hay suficiente stock de ${data.nombre} en esta sucursal (disponible: ${stockActualSucursal}).`);
         }
-        const nuevoStock = stockActual + (tipo === "entrada" ? cantidad : -cantidad);
+        const delta = tipo === "entrada" ? cantidad : -cantidad;
+        const nuevoStockSucursal = stockActualSucursal + delta;
+        const nuevoStockTotal = (data.stock || 0) + delta; // total del negocio = suma de todas las sucursales
         const montoTotal = cantidad * (data.precio || 0);
-        transaction.update(productRef, { stock: nuevoStock });
+        transaction.update(productRef, {
+          stock: nuevoStockTotal,
+          [`stockPorSucursal.${sucursalId}`]: nuevoStockSucursal
+        });
         transaction.set(movimientoRef, { tipo, productId, cantidad, nota, sucursalId, montoTotal, fecha: new Date().toISOString() });
       });
     })
@@ -1859,7 +1965,10 @@ function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, suc
   }
 
   // ---- Modo demo (sin Firebase) ----
-  product.stock += tipo === "entrada" ? cantidad : -cantidad;
+  if (!product.stockPorSucursal) product.stockPorSucursal = {};
+  const delta = tipo === "entrada" ? cantidad : -cantidad;
+  product.stockPorSucursal[sucursalId] = (product.stockPorSucursal[sucursalId] || 0) + delta;
+  product.stock += delta;
   // montoTotal = cantidad * precio unitario del producto en el momento del movimiento.
   // Es la base que usa el dashboard (Requerimiento 3) para sumar "Compras totales" y
   // "Ventas totales" en moneda, en vez de solo unidades.
@@ -2012,9 +2121,9 @@ function renderInventario() {
             <td class="font-mono text-xs text-slate-400">${p.sku}</td>
             <td class="font-medium text-ink">${p.nombre}</td>
             <td class="text-slate-400">${p.categoria}</td>
-            <td class="font-mono">${p.stock}</td>
+            <td class="font-mono">${stockVisible(p)}</td>
             <td class="font-mono">${p.stockMinimo}</td>
-            <td class="font-mono">${formatMoney(p.stock * p.precio)}</td>
+            <td class="font-mono">${formatMoney(stockVisible(p) * p.precio)}</td>
             <td>${statusTagHtml(productStatus(p))}</td>
           </tr>`
         )
@@ -2169,15 +2278,15 @@ function renderReportes() {
       <span class="bar-value">${totalOut}</span>
     </div>`;
 
-  const topProducts = [...STORE.products].sort((a, b) => b.stock - a.stock).slice(0, 5);
-  const maxStock = Math.max(...topProducts.map((p) => p.stock), 1);
+  const topProducts = [...STORE.products].sort((a, b) => stockVisible(b) - stockVisible(a)).slice(0, 5);
+  const maxStock = Math.max(...topProducts.map((p) => stockVisible(p)), 1);
   const topStockBars = document.getElementById("topStockBars");
   topStockBars.innerHTML = topProducts
     .map(
       (p) => `<div class="bar-row">
         <span class="bar-label" title="${p.nombre}">${p.nombre.length > 16 ? p.nombre.slice(0, 15) + "…" : p.nombre}</span>
-        <span class="bar-track"><span class="bar-fill bar-fill-stock" style="width:0%" data-width="${(p.stock / maxStock) * 100}"></span></span>
-        <span class="bar-value">${p.stock}</span>
+        <span class="bar-track"><span class="bar-fill bar-fill-stock" style="width:0%" data-width="${(stockVisible(p) / maxStock) * 100}"></span></span>
+        <span class="bar-value">${stockVisible(p)}</span>
       </div>`
     )
     .join("");
@@ -2678,7 +2787,7 @@ document.getElementById("repGenerarExcel").addEventListener("click", generateMov
    ALERTAS
    ========================================================================= */
 function renderAlertas() {
-  const alerts = STORE.products.filter((p) => productStatus(p) !== "ok").sort((a, b) => a.stock - b.stock);
+  const alerts = STORE.products.filter((p) => productStatus(p) !== "ok").sort((a, b) => stockVisible(a) - stockVisible(b));
   const list = document.getElementById("alertsList");
   const empty = document.getElementById("alertsEmptyState");
 
@@ -2691,7 +2800,7 @@ function renderAlertas() {
         </span>
         <div class="flex-1">
           <p class="font-semibold text-sm text-ink">${p.nombre} <span class="text-xs text-slate-400 font-normal">· ${p.sku}</span></p>
-          <p class="text-xs text-slate-500 mt-0.5">Quedan ${p.stock} unidades — el mínimo es ${p.stockMinimo}.</p>
+          <p class="text-xs text-slate-500 mt-0.5">Quedan ${stockVisible(p)} unidades — el mínimo es ${p.stockMinimo}.</p>
         </div>
         <button class="btn-secondary shrink-0" data-restock="${p.id}">
           <i data-lucide="arrow-down-to-line" class="h-4 w-4"></i>
