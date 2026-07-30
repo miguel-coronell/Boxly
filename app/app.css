@@ -124,6 +124,7 @@ select:focus-visible {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* ===================== Sidebar ===================== */
@@ -138,6 +139,8 @@ select:focus-visible {
   top: 0;
   left: 0;
   bottom: 0;
+  height: 100vh;
+  height: 100dvh;
   z-index: 40;
   transition: width 0.25s ease, transform 0.3s ease;
 }
@@ -148,6 +151,7 @@ select:focus-visible {
   flex: 1;
   margin-left: var(--sidebar-w);
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   transition: margin-left 0.25s ease;
@@ -1100,7 +1104,11 @@ body.paywall-locked { overflow: hidden; }
   input[type="password"],
   input[type="number"],
   input[type="search"],
-  input[type="tel"] {
+  input[type="tel"],
+  input[type="date"],
+  input[type="month"],
+  input[type="week"],
+  input[type="datetime-local"] {
     font-size: 16px !important;
   }
 }
@@ -1232,8 +1240,68 @@ html {
   grid-template-columns: repeat(2, 1fr);
   gap: 0.75rem;
 }
+@media (max-width: 420px) {
+  .report-filters { grid-template-columns: 1fr; }
+}
 @media (min-width: 768px) {
   .report-filters { grid-template-columns: repeat(5, 1fr); }
+}
+
+/* ===================== Filtros de Traslados ===================== */
+.traslados-filters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  align-items: end;
+}
+@media (min-width: 640px) {
+  .traslados-filters { grid-template-columns: 2fr 1fr 1fr; }
+}
+
+/* ===================== Detalle de remito (modal) ===================== */
+.traslado-detalle-info-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem;
+  background: var(--paper-soft, #F8FAFC);
+  border: 1px solid #E2E8F0;
+  border-radius: 0.85rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+@media (min-width: 560px) {
+  .traslado-detalle-info-grid { grid-template-columns: 1fr 1fr; }
+}
+.traslado-detalle-info-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.traslado-detalle-info-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94A3B8;
+  margin: 0;
+}
+.traslado-detalle-info-value {
+  font-size: 0.85rem;
+  color: #0B2B26;
+  font-weight: 600;
+  margin: 0;
+  word-break: break-word;
+}
+.traslado-detalle-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+@media (max-width: 480px) {
+  .traslado-detalle-actions { grid-template-columns: 1fr; }
+}
+.traslado-detalle-actions button {
+  justify-content: center;
 }
 .report-filter-group .form-input {
   margin-top: 0.3rem;

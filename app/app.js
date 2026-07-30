@@ -121,6 +121,20 @@ function repararDocumentosDeCuentaVieja(firebaseUser) {
    y dispara los mismos render*() que ya existían. Todo esto no corre en modo demo
    (sin Firebase configurado): ahí STORE sigue viniendo de localStorage como siempre. */
 let NEGOCIO_ID = null;
+/* FIX (encargados invitados por la cuenta creadora seguían viendo prueba/vencimiento):
+   isCreatorAccount() solo mira el email de quien está logueado AHORA. Eso identifica
+   bien a la propia cuenta creadora, pero un encargado que ESA cuenta invitó tiene su
+   propio email (el de él), así que isCreatorAccount() le daba false y quedaba
+   atrapado en el trial de 7 días / límites del plan básico del negocio, en vez de
+   heredar el "todo ilimitado" que ya tiene su Administrador. NEGOCIO_ES_DEL_CREADOR
+   se resuelve una vez, leyendo el email real del dueño del negocio (users/{NEGOCIO_ID},
+   que para el Administrador es su propio documento y para un encargado es el
+   documento de quien lo invitó) — así, sea quien sea quien esté mirando la pantalla,
+   sabemos si el NEGOCIO en sí es el de la cuenta creadora. */
+let NEGOCIO_ES_DEL_CREADOR = false;
+function esNegocioDelCreador() {
+  return isCreatorAccount() || NEGOCIO_ES_DEL_CREADOR;
+}
 let unsubscribeProductos = null;
 let unsubscribeMovimientos = null;
 let unsubscribeSucursales = null;
@@ -139,6 +153,20 @@ function iniciarSincronizacionFirestore() {
       // sucursal quedó limitado. Hasta este punto, ensureOwnerUser() lo había
       // dejado en un estado "pendiente" sin permisos (fail-closed).
       if (userDoc.exists) syncCurrentUserFromFirestore(userDoc.data());
+      // users/{NEGOCIO_ID} es siempre el documento del Administrador dueño de este
+      // negocio (coincide con NEGOCIO_ID tanto si quien mira la pantalla es él mismo
+      // como si es un encargado suyo) — de ahí sacamos su email real para saber si
+      // este negocio es el de la cuenta creadora, sin depender de qué cuenta esté
+      // logueada en este momento.
+      db.collection("users").doc(NEGOCIO_ID).get()
+        .then((dueñoDoc) => {
+          const emailDueño = dueñoDoc.exists ? (dueñoDoc.data().email || "") : "";
+          NEGOCIO_ES_DEL_CREADOR = emailDueño.toLowerCase() === CREATOR_EMAIL;
+          renderTrialBanner();
+          initTrialGuard();
+          if (typeof renderMiPlan === "function" && document.getElementById("section-mi-plan")) renderMiPlan();
+        })
+        .catch((err) => console.error("No se pudo confirmar el dueño del negocio.", err));
       suscribirProductosFirestore(db);
       suscribirMovimientosFirestore(db);
       suscribirSucursalesFirestore(db);
@@ -473,7 +501,7 @@ function markPlanPaid(uid, planKey, tier) {
 function renderTrialBanner() {
   const banner = document.getElementById("trialBanner");
   if (!banner || !CURRENT_USER) return;
-  if (isCreatorAccount()) {
+  if (esNegocioDelCreador()) {
     banner.classList.add("hidden");
     return;
   }
@@ -493,9 +521,9 @@ function renderTrialBanner() {
 
 function initTrialGuard() {
   if (!CURRENT_USER) return;
-  if (isCreatorAccount()) {
+  if (esNegocioDelCreador()) {
     document.getElementById("trialBanner").classList.add("hidden");
-    return; // la cuenta creadora nunca se bloquea ni ve el banner de prueba
+    return; // la cuenta creadora (y sus encargados invitados) nunca se bloquea ni ve el banner de prueba
   }
   ensureTrial(CURRENT_USER.uid);
   const status = getTrialStatus(CURRENT_USER.uid);
@@ -512,6 +540,13 @@ function lockToMiPlan() {
     const target = link.getAttribute("data-target");
     if (target !== "mi-plan" && target !== "ayuda") link.disabled = true;
   });
+  if (!isCurrentUserAdmin()) {
+    // Un encargado no puede pagar ni gestionar el plan — "Mi Plan" es admin-only y
+    // switchSection() lo rebotaría igual. Se le explica y se lo deja en Ayuda.
+    showToast("La prueba gratis de tu negocio terminó. Pedile al Administrador que active un plan para volver a operar.", "error");
+    switchSection("ayuda");
+    return;
+  }
   switchSection("mi-plan");
 }
 
@@ -574,7 +609,7 @@ function getTrialTier(uid) {
 
 function getPlanLimits() {
   if (!CURRENT_USER) return PLAN_TIERS.basico;
-  if (isCreatorAccount()) return PLAN_TIERS.premium; // ver punto 3.4 más abajo
+  if (esNegocioDelCreador()) return PLAN_TIERS.premium; // ver punto 3.4 más abajo
   const status = getTrialStatus(CURRENT_USER.uid);
   if (!status.isPaid && !status.expired) return PLAN_TIERS.basico; // límites reales de la prueba
   const tier = getTrialTier(CURRENT_USER.uid);
@@ -757,8 +792,23 @@ function renderMiPlanCreador() {
 
 /* Pinta la sección "Mi Plan": plan actual, próximo pago y las 3 barras de progreso
    de uso (sucursales / productos / documentos). */
+/* FIX (Mi Plan mostraba "prueba gratis"/"sin plan activo" a la cuenta creadora):
+   renderMiPlanCreador() ya existía para pintar la vista especial de todo
+   ilimitado, pero nada la llamaba — el botón "Mi Plan" siempre corría la
+   renderMiPlan() genérica, que arma su texto con getTrialStatus() sin mirar
+   esNegocioDelCreador(). Como initTrialGuard() sí bloquea la navegación
+   normal según esNegocioDelCreador(), el resultado era contradictorio: a la
+   cuenta creadora (y a los encargados que invite) nunca se los bloqueaba,
+   pero si entraban a "Mi Plan" veían igual "Tu prueba gratis terminó, elegí
+   un plan" con la cuenta del negocio ya vencida. Ahora "Mi Plan" despacha a
+   la vista especial apenas se confirma que el negocio es de la cuenta
+   creadora, sea quien sea quien esté mirando la pantalla. */
 function renderMiPlan() {
   if (!CURRENT_USER) return;
+  if (esNegocioDelCreador()) {
+    renderMiPlanCreador();
+    return;
+  }
   const status = getTrialStatus(CURRENT_USER.uid);
   const tier = status.isPaid ? getTrialTier(CURRENT_USER.uid) : "basico";
   const limits = getPlanLimits();
@@ -2373,7 +2423,29 @@ let TRASLADO_ITEMS = [];
 function trasladosVisibles() {
   // Ya vienen filtrados por sucursal desde suscribirTrasladosFirestore() (o,
   // en modo demo, no hace falta filtrar: el demo siempre corre como Admin).
-  return [...STORE.traslados].sort((a, b) => new Date(b.fechaCreacion) - new Date(a.fechaCreacion));
+  let items = [...STORE.traslados].sort((a, b) => new Date(b.fechaCreacion) - new Date(a.fechaCreacion));
+
+  // Filtros del historial: búsqueda libre (N° de remisión o usuario) + rango
+  // de fechas. Se leen del DOM en cada render en vez de guardarse aparte,
+  // como ya hacen los filtros de Reportes.
+  const buscarInput = document.getElementById("trasladosBuscar");
+  const desdeInput = document.getElementById("trasladosFechaDesde");
+  const hastaInput = document.getElementById("trasladosFechaHasta");
+  const query = buscarInput ? buscarInput.value.trim().toLowerCase() : "";
+  const desde = desdeInput && desdeInput.value ? new Date(`${desdeInput.value}T00:00:00`) : null;
+  const hasta = hastaInput && hastaInput.value ? new Date(`${hastaInput.value}T23:59:59`) : null;
+
+  if (query) {
+    items = items.filter((t) =>
+      (t.numero || "").toLowerCase().includes(query) ||
+      (t.creadoPorNombre || "").toLowerCase().includes(query) ||
+      (t.recepcion && t.recepcion.recibidoPorNombre || "").toLowerCase().includes(query)
+    );
+  }
+  if (desde) items = items.filter((t) => new Date(t.fechaCreacion) >= desde);
+  if (hasta) items = items.filter((t) => new Date(t.fechaCreacion) <= hasta);
+
+  return items;
 }
 
 function populateTrasladoSucursalSelects() {
@@ -2472,6 +2544,17 @@ function agregarProductoATraslado(productId) {
 function setupTrasladoForm() {
   const form = document.getElementById("trasladoForm");
   if (!form) return;
+
+  // Filtros del historial de remitos (búsqueda + rango de fechas). Van acá
+  // aunque el formulario de arriba sea admin-only, porque el historial de
+  // abajo lo ve cualquier usuario y setupTrasladoForm() ya corre siempre
+  // que existe la sección de Traslados.
+  const buscarInput = document.getElementById("trasladosBuscar");
+  const desdeInput = document.getElementById("trasladosFechaDesde");
+  const hastaInput = document.getElementById("trasladosFechaHasta");
+  if (buscarInput) buscarInput.addEventListener("input", renderTraslados);
+  if (desdeInput) desdeInput.addEventListener("change", renderTraslados);
+  if (hastaInput) hastaInput.addEventListener("change", renderTraslados);
 
   populateProductSelect(document.getElementById("trasladoProductoManual"), "");
 
@@ -2678,6 +2761,7 @@ const TRASLADO_ESTADO_TAG = {
   recibido: `<span class="status-tag status-ok">Recibido</span>`,
   cancelado: `<span class="status-tag status-critical">Cancelado</span>`
 };
+const TRASLADO_ESTADO_LABEL = { pendiente: "Pendiente", recibido: "Recibido", cancelado: "Cancelado" };
 
 function renderTraslados() {
   populateTrasladoSucursalSelects();
@@ -2704,6 +2788,7 @@ function renderTraslados() {
       const puedeRecibir = t.estado === "pendiente" && (admin || miSucursal === t.sucursalDestinoId);
       const puedeCancelar = t.estado === "pendiente" && admin;
       const acciones = [
+        `<button class="icon-btn" data-ver-traslado="${t.id}" aria-label="Ver remito" title="Ver remito"><i data-lucide="eye" class="h-4 w-4"></i></button>`,
         puedeRecibir ? `<button class="btn-secondary" data-recibir-traslado="${t.id}"><i data-lucide="package-check" class="h-4 w-4"></i> Recibir</button>` : "",
         puedeCancelar ? `<button class="icon-btn danger" data-cancelar-traslado="${t.id}" aria-label="Cancelar"><i data-lucide="x-circle" class="h-4 w-4"></i></button>` : ""
       ].join(" ");
@@ -2714,7 +2799,7 @@ function renderTraslados() {
         <td class="text-slate-500">${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}</td>
         <td>${TRASLADO_ESTADO_TAG[t.estado] || t.estado}</td>
         <td class="text-slate-400">${t.creadoPorNombre || "—"}</td>
-        <td class="text-right"><div class="flex justify-end gap-2">${acciones || "—"}</div></td>
+        <td class="text-right"><div class="flex justify-end gap-2">${acciones}</div></td>
       </tr>`;
     })
     .join("");
@@ -2722,6 +2807,9 @@ function renderTraslados() {
   empty.classList.toggle("hidden", items.length > 0);
   refreshIcons();
 
+  tbody.querySelectorAll("[data-ver-traslado]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirDetalleTraslado(btn.getAttribute("data-ver-traslado")));
+  });
   tbody.querySelectorAll("[data-recibir-traslado]").forEach((btn) => {
     btn.addEventListener("click", () => abrirRecepcionTraslado(btn.getAttribute("data-recibir-traslado")));
   });
@@ -2749,6 +2837,383 @@ function actualizarBadgeTraslados(items) {
   const count = pendientesQueMeTocan.length;
   badge.textContent = count;
   badge.classList.toggle("hidden", count === 0);
+}
+
+/* ---------------------------- Detalle y export de un remito de traslado ----------------------------
+   Antes la columna "Acciones" solo tenía botones para traslados pendientes
+   (Recibir/Cancelar): un remito ya recibido o cancelado quedaba con un
+   simple "—", sin ninguna forma de volver a consultarlo. Ahora CUALQUIER
+   fila tiene un botón "Ver remito" (el ícono de ojo) que abre el detalle
+   completo — productos enviados/recibidos, quién lo creó, quién lo recibió,
+   diferencias — y desde ahí se puede descargar el remito en PDF o Excel, o
+   compartirlo por WhatsApp/email. Lo puede abrir cualquier usuario que vea
+   la fila (no es admin-only), tal como pediste. */
+function abrirDetalleTraslado(trasladoId) {
+  const t = STORE.traslados.find((x) => x.id === trasladoId);
+  if (!t) {
+    showToast("Ese traslado ya no está disponible.", "error");
+    return;
+  }
+  const recepcion = t.recepcion || null;
+
+  const filasProductos = t.productos
+    .map((p) => {
+      const r = recepcion ? recepcion.productos.find((x) => x.productId === p.productId) : null;
+      let diferenciaTxt = "—";
+      if (recepcion) {
+        diferenciaTxt = r && r.diferencia !== 0
+          ? `<span class="status-tag status-critical">${r.diferencia > 0 ? "-" : "+"}${Math.abs(r.diferencia)}${r.motivoDiferencia ? ` · ${r.motivoDiferencia}` : ""}</span>`
+          : `<span class="status-tag status-ok">OK</span>`;
+      }
+      return `<tr>
+        <td class="font-semibold text-ink">${p.nombre}</td>
+        <td class="font-mono text-xs text-slate-400">${p.sku || "—"}</td>
+        <td class="text-right font-mono">${p.cantidadEnviada}</td>
+        <td class="text-right font-mono">${r ? r.cantidadRecibida : "—"}</td>
+        <td class="text-right">${diferenciaTxt}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const infoRows = [
+    { icon: "calendar", label: "Creado", value: formatDate(t.fechaCreacion) },
+    { icon: "user", label: "Creado por", value: t.creadoPorNombre || "—" },
+    { icon: "arrow-right-left", label: "Origen → Destino", value: `${t.sucursalOrigenNombre || sucursalName(t.sucursalOrigenId)} → ${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}` }
+  ];
+  if (recepcion) {
+    infoRows.push({ icon: "package-check", label: "Recibido por", value: recepcion.recibidoPorNombre || "—" });
+    infoRows.push({ icon: "calendar-check-2", label: "Fecha de recepción", value: formatDate(recepcion.fecha) });
+  }
+  if (t.nota) infoRows.push({ icon: "sticky-note", label: "Nota", value: t.nota });
+
+  const infoHtml = infoRows
+    .map((r) => `
+      <div class="traslado-detalle-info-item">
+        <i data-lucide="${r.icon}" class="h-4 w-4 text-slate-400 shrink-0"></i>
+        <div><p class="traslado-detalle-info-label">${r.label}</p><p class="traslado-detalle-info-value">${r.value}</p></div>
+      </div>`)
+    .join("");
+
+  openModal(
+    `Remito ${t.numero}`,
+    `<div class="traslado-detalle">
+       <div class="flex items-center justify-between mb-3">
+         ${TRASLADO_ESTADO_TAG[t.estado] || t.estado}
+         <span class="text-xs text-slate-400">N° ${t.numero}</span>
+       </div>
+       <div class="traslado-detalle-info-grid">${infoHtml}</div>
+       <label class="form-label">Productos del remito</label>
+       <div class="overflow-x-auto">
+         <table class="app-table">
+           <thead><tr><th>Producto</th><th>SKU</th><th class="text-right">Enviado</th><th class="text-right">Recibido</th><th class="text-right">Diferencia</th></tr></thead>
+           <tbody>${filasProductos}</tbody>
+         </table>
+       </div>
+       <label class="form-label">Compartir o descargar</label>
+       <div class="traslado-detalle-actions">
+         <button type="button" id="trasladoDetallePdf" class="btn-primary"><i data-lucide="file-down" class="h-4 w-4"></i> Descargar PDF</button>
+         <button type="button" id="trasladoDetalleExcel" class="btn-secondary"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i> Descargar Excel</button>
+         <button type="button" id="trasladoDetalleWhatsapp" class="btn-secondary"><i data-lucide="message-circle" class="h-4 w-4"></i> Enviar por WhatsApp</button>
+         <button type="button" id="trasladoDetalleEmail" class="btn-secondary"><i data-lucide="mail" class="h-4 w-4"></i> Enviar por email</button>
+       </div>
+       <p class="text-xs text-slate-400 mt-2">WhatsApp y email abren con el resumen del remito ya escrito; descargá el PDF o el Excel aparte para adjuntarlo, porque el navegador no puede adjuntar archivos automáticamente en esos links.</p>
+     </div>`,
+    (body) => {
+      body.querySelector("#trasladoDetallePdf").addEventListener("click", () => generateTrasladoPdf(t));
+      body.querySelector("#trasladoDetalleExcel").addEventListener("click", () => generateTrasladoExcel(t));
+      body.querySelector("#trasladoDetalleWhatsapp").addEventListener("click", () => compartirTrasladoWhatsapp(t));
+      body.querySelector("#trasladoDetalleEmail").addEventListener("click", () => compartirTrasladoEmail(t));
+    }
+  );
+}
+
+function resumenTextoTraslado(t) {
+  const recepcion = t.recepcion || null;
+  const productosTxt = t.productos
+    .map((p) => {
+      const r = recepcion ? recepcion.productos.find((x) => x.productId === p.productId) : null;
+      return r
+        ? `• ${p.nombre}: enviado ${p.cantidadEnviada}, recibido ${r.cantidadRecibida}${r.diferencia !== 0 ? ` (diferencia ${r.diferencia > 0 ? "-" : "+"}${Math.abs(r.diferencia)}${r.motivoDiferencia ? `: ${r.motivoDiferencia}` : ""})` : ""}`
+        : `• ${p.nombre}: ${p.cantidadEnviada} unidades`;
+    })
+    .join("\n");
+  return [
+    `Remito de traslado ${t.numero}`,
+    `${t.sucursalOrigenNombre || sucursalName(t.sucursalOrigenId)} → ${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}`,
+    `Estado: ${TRASLADO_ESTADO_LABEL[t.estado] || t.estado}`,
+    `Creado por ${t.creadoPorNombre || "—"} el ${formatDate(t.fechaCreacion)}`,
+    recepcion ? `Recibido por ${recepcion.recibidoPorNombre || "—"} el ${formatDate(recepcion.fecha)}` : "",
+    "",
+    "Productos:",
+    productosTxt,
+    t.nota ? `\nNota: ${t.nota}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function compartirTrasladoWhatsapp(t) {
+  const mensaje = resumenTextoTraslado(t);
+  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`, "_blank", "noopener");
+}
+
+function compartirTrasladoEmail(t) {
+  const mensaje = resumenTextoTraslado(t);
+  window.location.href = `mailto:?subject=${encodeURIComponent(`Remito de traslado ${t.numero}`)}&body=${encodeURIComponent(mensaje)}`;
+}
+
+/* Genera el PDF de un remito puntual, reusando el mismo header (logo + datos
+   del negocio) que ya arma generateMovementsPdf() para los reportes, para
+   que todos los documentos descargados desde Boxly se vean consistentes. */
+function generateTrasladoPdf(t) {
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    showToast("No se pudo cargar el generador de PDF. Verificá tu conexión a internet.", "error");
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 40;
+  const headerY = 40;
+
+  const settings = STORE.settings;
+  const hasLogo = Boolean(settings.logoBase64);
+  const nameX = hasLogo ? marginX + 50 : marginX;
+
+  if (hasLogo) {
+    try {
+      doc.addImage(settings.logoBase64, marginX, headerY - 15, 38, 38);
+    } catch (err) {
+      console.warn("No se pudo insertar el logo en el PDF.", err);
+    }
+  } else {
+    try {
+      doc.addImage(PDF_ICONS.building, marginX, headerY - 15, 26, 26);
+    } catch (err) { /* ignorar */ }
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor("#0B2B26");
+  doc.text(settings.nombreNegocio || "Mi negocio", nameX, headerY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.3);
+  doc.setTextColor("#475569");
+  const iconSize = 7.5;
+  const col1X = nameX;
+  const col2X = nameX + 165;
+  let infoY = headerY + 14;
+
+  function drawInfoField(x, y, icon, text) {
+    if (!text) return;
+    if (icon) {
+      doc.addImage(icon, x, y - 6.5, iconSize, iconSize);
+      doc.text(text, x + iconSize + 4, y);
+    } else {
+      doc.text(text, x, y);
+    }
+  }
+
+  const row1HasContent = settings.direccion || settings.telefono;
+  const row2HasContent = settings.email || settings.fiscal;
+  drawInfoField(col1X, infoY, PDF_ICONS.location, settings.direccion);
+  drawInfoField(col2X, infoY, PDF_ICONS.phone, settings.telefono);
+  if (row1HasContent) infoY += 12;
+  drawInfoField(col1X, infoY, PDF_ICONS.mail, settings.email);
+  drawInfoField(col2X, infoY, PDF_ICONS.nit, settings.fiscal ? `CUIT/ID: ${settings.fiscal}` : "");
+  if (row2HasContent) infoY += 12;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor("#0B2B26");
+  doc.text(`Remito de traslado ${t.numero}`, pageWidth - marginX, headerY, { align: "right" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.3);
+  doc.setTextColor("#475569");
+  doc.text(`${t.sucursalOrigenNombre || sucursalName(t.sucursalOrigenId)} → ${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}`, pageWidth - marginX, headerY + 14, { align: "right" });
+  doc.text(`Generado: ${new Date().toLocaleString("es-AR")}`, pageWidth - marginX, headerY + 26, { align: "right" });
+
+  let blockY = Math.max(infoY, headerY + 32) + 14;
+  doc.setDrawColor("#E2E8F0");
+  doc.setLineWidth(0.75);
+  doc.line(marginX, blockY, pageWidth - marginX, blockY);
+  blockY += 16;
+
+  const recepcion = t.recepcion || null;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor("#0B2B26");
+  doc.text(`Estado: ${TRASLADO_ESTADO_LABEL[t.estado] || t.estado}`, marginX, blockY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor("#475569");
+  const detalleLinea = `Creado por ${t.creadoPorNombre || "—"} el ${formatDate(t.fechaCreacion)}${recepcion ? ` · Recibido por ${recepcion.recibidoPorNombre || "—"} el ${formatDate(recepcion.fecha)}` : ""}`;
+  doc.text(detalleLinea, marginX + 95, blockY);
+  blockY += 16;
+  if (t.nota) {
+    doc.text(`Nota: ${t.nota}`, marginX, blockY);
+    blockY += 14;
+  }
+
+  const tableStartY = blockY + 6;
+  const head = recepcion
+    ? [["Producto", "SKU", "Enviado", "Recibido", "Diferencia"]]
+    : [["Producto", "SKU", "Cantidad"]];
+  const body = t.productos.map((p) => {
+    if (!recepcion) return [p.nombre, p.sku || "—", String(p.cantidadEnviada)];
+    const r = recepcion.productos.find((x) => x.productId === p.productId);
+    const dif = r ? r.diferencia : 0;
+    const difTxt = dif !== 0 ? `${dif > 0 ? "-" : "+"}${Math.abs(dif)}${r.motivoDiferencia ? ` (${r.motivoDiferencia})` : ""}` : "OK";
+    return [p.nombre, p.sku || "—", String(p.cantidadEnviada), r ? String(r.cantidadRecibida) : "—", difTxt];
+  });
+
+  doc.autoTable({
+    startY: tableStartY,
+    head,
+    body,
+    styles: { font: "helvetica", fontSize: 8, textColor: "#334155", cellPadding: 5 },
+    headStyles: { fillColor: "#0E6B4F", textColor: "#ffffff", fontStyle: "bold", fontSize: 8.3 },
+    alternateRowStyles: { fillColor: "#F8FBF9" },
+    margin: { left: marginX, right: marginX }
+  });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor("#94A3B8");
+  doc.text("Generado con Boxly — Panel de control de inventario.", marginX, doc.internal.pageSize.getHeight() - 20);
+
+  doc.save(`boxly-remito-${t.numero}.pdf`);
+  showToast("Remito PDF generado.", "success");
+}
+
+/* Genera el Excel de un remito puntual, con el mismo estilo (header verde,
+   logo, filas alternadas) que ya usa generateMovementsExcel() para los
+   reportes de auditoría. */
+async function generateTrasladoExcel(t) {
+  if (!window.ExcelJS) {
+    showToast("No se pudo cargar el generador de Excel. Verificá tu conexión a internet.", "error");
+    return;
+  }
+  const settings = STORE.settings;
+  const recepcion = t.recepcion || null;
+  const columns = recepcion
+    ? [
+        { header: "Producto", key: "producto", width: 30 },
+        { header: "SKU", key: "sku", width: 16 },
+        { header: "Enviado", key: "enviado", width: 12 },
+        { header: "Recibido", key: "recibido", width: 12 },
+        { header: "Diferencia", key: "diferencia", width: 24 }
+      ]
+    : [
+        { header: "Producto", key: "producto", width: 30 },
+        { header: "SKU", key: "sku", width: 16 },
+        { header: "Cantidad", key: "cantidad", width: 12 }
+      ];
+  const colCount = columns.length;
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Boxly";
+  workbook.created = new Date();
+  const sheet = workbook.addWorksheet(`Remito ${t.numero}`, {
+    pageSetup: { orientation: "landscape", fitToPage: true }
+  });
+
+  const GREEN = "FF0E6B4F";
+  const GREEN_LIGHT = "FFE9F8EE";
+  const INK = "FF0B2B26";
+  const MUTED = "FF64748B";
+  const BORDER = "FFDCEAE1";
+
+  sheet.mergeCells(1, 1, 1, Math.max(colCount - 2, 1));
+  const titleCell = sheet.getCell(1, 1);
+  titleCell.value = settings.nombreNegocio || "Mi negocio";
+  titleCell.font = { bold: true, size: 14, color: { argb: INK } };
+  sheet.getRow(1).height = 24;
+
+  const infoParts = [settings.direccion, settings.telefono, settings.email, settings.fiscal ? `CUIT/ID: ${settings.fiscal}` : null].filter(Boolean);
+  sheet.mergeCells(2, 1, 2, Math.max(colCount - 2, 1));
+  sheet.getCell(2, 1).value = infoParts.join("   ·   ") || " ";
+  sheet.getCell(2, 1).font = { size: 9, color: { argb: MUTED } };
+
+  sheet.mergeCells(3, 1, 3, Math.max(colCount - 2, 1));
+  const tituloRemito = sheet.getCell(3, 1);
+  tituloRemito.value = `Remito de traslado ${t.numero} — ${t.sucursalOrigenNombre || sucursalName(t.sucursalOrigenId)} → ${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}`;
+  tituloRemito.font = { bold: true, size: 11, color: { argb: GREEN } };
+
+  sheet.mergeCells(4, 1, 4, Math.max(colCount - 2, 1));
+  sheet.getCell(4, 1).value = `Estado: ${TRASLADO_ESTADO_LABEL[t.estado] || t.estado} · Creado por ${t.creadoPorNombre || "—"} el ${formatDate(t.fechaCreacion)}${recepcion ? ` · Recibido por ${recepcion.recibidoPorNombre || "—"} el ${formatDate(recepcion.fecha)}` : ""}${t.nota ? ` · Nota: ${t.nota}` : ""}`;
+  sheet.getCell(4, 1).font = { italic: true, size: 8.5, color: { argb: MUTED } };
+
+  if (settings.logoBase64) {
+    try {
+      const match = /^data:image\/(png|jpe?g|webp);base64,/i.exec(settings.logoBase64);
+      let ext = match ? match[1].toLowerCase() : "png";
+      if (ext === "jpg") ext = "jpeg";
+      if (ext === "webp") ext = "png"; // ExcelJS no soporta webp; se omite si no matchea png/jpeg
+      const base64Data = settings.logoBase64.split(",")[1];
+      if (base64Data && (ext === "png" || ext === "jpeg")) {
+        const imageId = workbook.addImage({ base64: base64Data, extension: ext });
+        sheet.addImage(imageId, { tl: { col: Math.max(colCount - 2, 1), row: 0 }, ext: { width: 64, height: 64 } });
+        sheet.getRow(1).height = 26;
+        sheet.getRow(2).height = 16;
+        sheet.getRow(3).height = 16;
+        sheet.getRow(4).height = 16;
+      }
+    } catch (err) {
+      console.warn("No se pudo insertar el logo en el Excel.", err);
+    }
+  }
+
+  const headerRowIndex = 6;
+  const headerRow = sheet.getRow(headerRowIndex);
+  columns.forEach((c, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = c.header;
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10.5 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
+    cell.alignment = { vertical: "middle", horizontal: c.key === "producto" ? "left" : "right" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FF15803D" } } };
+  });
+  headerRow.height = 22;
+
+  t.productos.forEach((p, rowIdx) => {
+    const r = recepcion ? recepcion.productos.find((x) => x.productId === p.productId) : null;
+    const row = sheet.getRow(headerRowIndex + 1 + rowIdx);
+    const dif = r ? r.diferencia : 0;
+    const values = recepcion
+      ? [p.nombre, p.sku || "—", p.cantidadEnviada, r ? r.cantidadRecibida : "—", dif !== 0 ? `${dif > 0 ? "-" : "+"}${Math.abs(dif)}${r.motivoDiferencia ? ` (${r.motivoDiferencia})` : ""}` : "OK"]
+      : [p.nombre, p.sku || "—", p.cantidadEnviada];
+    columns.forEach((c, i) => {
+      const cell = row.getCell(i + 1);
+      cell.value = values[i];
+      cell.font = { size: 9.5, color: { argb: "FF334155" } };
+      cell.alignment = { vertical: "middle", horizontal: c.key === "producto" ? "left" : "right", wrapText: c.key === "producto" };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowIdx % 2 === 0 ? "FFFFFFFF" : GREEN_LIGHT } };
+      cell.border = { bottom: { style: "hair", color: { argb: BORDER } } };
+    });
+  });
+
+  const footerRowIndex = headerRowIndex + 1 + t.productos.length + 1;
+  sheet.mergeCells(footerRowIndex, 1, footerRowIndex, colCount);
+  sheet.getCell(footerRowIndex, 1).value = "Generado con Boxly — Panel de control de inventario.";
+  sheet.getCell(footerRowIndex, 1).font = { italic: true, size: 8, color: { argb: "FF94A3B8" } };
+
+  columns.forEach((c, i) => {
+    sheet.getColumn(i + 1).width = c.width;
+  });
+  sheet.views = [{ state: "frozen", ySplit: headerRowIndex }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `boxly-remito-${t.numero}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast("Remito Excel generado.", "success");
 }
 
 /* ---------------------------- Recepción de un traslado ---------------------------- */
@@ -4253,28 +4718,51 @@ function generarPasswordTemporal() {
    el Administrador se los mande al encargado con un clic. No hay un
    servicio de envío de emails propio conectado, así que en vez de "enviar"
    desde el servidor, se arma el mensaje y se abre el cliente de
-   WhatsApp/email del propio Administrador con todo precargado. */
+   WhatsApp/email del propio Administrador con todo precargado.
+
+   FIX (link roto): antes el link salía como `${window.location.origin}/login.html`,
+   que en GitHub Pages pierde la carpeta del proyecto (miguel-coronell.github.io
+   ES el origin, pero la app vive en /Boxly/app/) y mandaba a una URL que no
+   existe. Ahora se arma relativo a la carpeta donde vive este mismo archivo
+   (new URL("login.html", location.href)), así apunta siempre a
+   https://miguel-coronell.github.io/Boxly/app/login.html sin depender de un
+   dominio hardcodeado que se rompería si el proyecto se muda de repo.
+
+   FIX (mensaje no editable): el textarea era readonly y los links de WhatsApp/
+   email llevaban el texto ya fijado desde que se abrió el modal, así que
+   cualquier cambio del Administrador antes de enviar no se reflejaba en el
+   click. Ahora el textarea es editable y los botones arman la URL recién al
+   tocarlos, leyendo el valor actual del textarea. */
 function openInviteModal({ nombre, email, sucursalId, password, telefono }) {
   const sucursal = sucursalName(sucursalId);
-  const loginUrl = `${window.location.origin}/login.html`;
+  const loginUrl = new URL("login.html", window.location.href).href;
   const lineaPassword = password
     ? `Contraseña: ${password}`
     : `Usá la contraseña que te compartieron antes, o tocá "¿Olvidaste tu contraseña?" en el login para generar una nueva.`;
-  const mensaje = `Hola ${nombre}! Te invitamos a usar Boxly como encargado/a de la sucursal "${sucursal}".\n\nIngresá en: ${loginUrl}\nEmail: ${email}\n${lineaPassword}\n\nDesde ahí vas a ver los movimientos de tu sucursal en tiempo real.`;
-
-  const whatsappUrl = telefono
-    ? `https://wa.me/${telefono.replace(/\D/g, "")}?text=${encodeURIComponent(mensaje)}`
-    : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
-  const mailtoUrl = `mailto:${email}?subject=${encodeURIComponent("Invitación a Boxly")}&body=${encodeURIComponent(mensaje)}`;
+  const mensajeInicial = `Hola ${nombre}! Te invitamos a usar Boxly como encargado/a de la sucursal "${sucursal}".\n\nIngresá en: ${loginUrl}\nEmail: ${email}\n${lineaPassword}\n\nDesde ahí vas a ver los movimientos de tu sucursal en tiempo real.`;
 
   openModal(
     "Invitar al encargado",
-    `<p class="text-sm text-slate-400 mb-3">Elegí cómo mandarle el acceso a <strong>${nombre}</strong>. Se abre tu WhatsApp o tu email con el mensaje ya escrito.</p>
-     <a href="${whatsappUrl}" target="_blank" rel="noopener" class="btn-primary w-full justify-center mb-2"><i data-lucide="message-circle" class="h-4 w-4"></i> Enviar por WhatsApp</a>
-     <a href="${mailtoUrl}" class="btn-secondary w-full justify-center"><i data-lucide="mail" class="h-4 w-4"></i> Enviar por email</a>
-     <label class="form-label mt-4">O copiá el mensaje</label>
-     <textarea class="form-input" rows="6" readonly onclick="this.select()">${mensaje}</textarea>`,
-    () => {}
+    `<p class="text-sm text-slate-400 mb-3">Elegí cómo mandarle el acceso a <strong>${nombre}</strong>. Podés editar el mensaje antes de enviarlo.</p>
+     <label class="form-label" style="margin-top:0">Mensaje</label>
+     <textarea id="inviteMensajeTexto" class="form-input" rows="6">${mensajeInicial}</textarea>
+     <button type="button" id="inviteEnviarWhatsapp" class="btn-primary w-full justify-center mt-3 mb-2"><i data-lucide="message-circle" class="h-4 w-4"></i> Enviar por WhatsApp</button>
+     <button type="button" id="inviteEnviarEmail" class="btn-secondary w-full justify-center"><i data-lucide="mail" class="h-4 w-4"></i> Enviar por email</button>`,
+    (body) => {
+      const textarea = body.querySelector("#inviteMensajeTexto");
+      body.querySelector("#inviteEnviarWhatsapp").addEventListener("click", () => {
+        const mensaje = textarea.value;
+        const whatsappUrl = telefono
+          ? `https://wa.me/${telefono.replace(/\D/g, "")}?text=${encodeURIComponent(mensaje)}`
+          : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+        window.open(whatsappUrl, "_blank", "noopener");
+      });
+      body.querySelector("#inviteEnviarEmail").addEventListener("click", () => {
+        const mensaje = textarea.value;
+        const mailtoUrl = `mailto:${email}?subject=${encodeURIComponent("Invitación a Boxly")}&body=${encodeURIComponent(mensaje)}`;
+        window.location.href = mailtoUrl;
+      });
+    }
   );
 }
 
@@ -4586,6 +5074,13 @@ const TOUR_STEPS = [
     target: "#section-alertas .panel"
   },
   {
+    icon: "truck",
+    title: "Traslados",
+    desc: "Consultá los remitos de traslado entre sucursales y confirmá la recepción cuando te llegue mercadería. El Administrador es quien genera cada remito nuevo.",
+    section: "traslados",
+    target: "#panelRemitosTraslado"
+  },
+  {
     icon: "users",
     title: "Usuarios",
     desc: "Acá ves quién tiene acceso a tu cuenta: vos como Administrador y los encargados que invites, con su sucursal y estado real.",
@@ -4614,7 +5109,8 @@ const TOUR_STEPS = [
     title: "Configuración",
     desc: "Personalizá moneda, stock mínimo, logo y datos de contacto de tu negocio en un solo lugar.",
     section: "configuracion",
-    target: "#cfgLogoBtn"
+    target: "#cfgLogoBtn",
+    adminOnly: true
   },
   {
     icon: "life-buoy",
@@ -4626,8 +5122,13 @@ const TOUR_STEPS = [
 ];
 
 /* Pasos visibles según el rol del usuario logueado: los admin-only (Usuarios,
-   Sucursales, Mi Plan) se saltean si quien ve el tour no es Administrador,
-   para no chocar con la redirección que ya hace switchSection(). */
+   Sucursales, Mi Plan, Configuración) se saltean si quien ve el tour no es
+   Administrador, para no chocar con la redirección que ya hace
+   switchSection() — antes Configuración no tenía esta marca y el tour
+   igual intentaba mostrárselo a un encargado invitado, que era redirigido
+   fuera de esa sección apenas switchSection() la bloqueaba. Con esto, el
+   tour de un encargado queda con menos pasos (solo lo que esa cuenta puede
+   ver de verdad), tal como el de un Administrador. */
 function getVisibleTourSteps() {
   return TOUR_STEPS.filter((step) => !step.adminOnly || isCurrentUserAdmin());
 }
@@ -4779,10 +5280,20 @@ document.getElementById("tourSkip").addEventListener("click", closeTour);
 const replayBtn = document.getElementById("replayTourBtn");
 if (replayBtn) replayBtn.addEventListener("click", openTour);
 
+/* FIX (tour ausente para encargados invitados): NEW_USER_FLAG solo lo
+   escribe login.js cuando alguien se registra desde cero (Administrador
+   nuevo). Un encargado invitado por el Administrador nunca pasa por ese
+   registro — inicia sesión directo con la contraseña que le crearon en
+   Sucursales → "Nuevo encargado" — así que ese flag nunca queda en "true"
+   para su cuenta y initOnboardingTour() no lo mostraba jamás, sin importar
+   que fuera su primer ingreso real. TOUR_DONE_FLAG ya está guardado por uid
+   (scopedFlagKey) desde el fix anterior, así que alcanza con esa marca sola:
+   si esta cuenta puntual todavía no cerró/saltó el tour alguna vez en este
+   navegador, se lo mostramos — sea Administrador recién registrado o
+   encargado recién invitado. */
 function initOnboardingTour() {
-  const isNewUser = localStorage.getItem(NEW_USER_FLAG) === "true" || localStorage.getItem(scopedFlagKey(NEW_USER_FLAG)) === "true";
   const alreadySeen = localStorage.getItem(scopedFlagKey(TOUR_DONE_FLAG)) === "true";
-  if (isNewUser && !alreadySeen) {
+  if (!alreadySeen) {
     setTimeout(openTour, 500);
   }
 }

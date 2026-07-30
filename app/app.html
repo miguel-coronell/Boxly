@@ -55,7 +55,7 @@
     <div class="sidebar-top">
       <a href="#" class="flex items-center gap-2 shrink-0">
         <img src="../img/boxly-icon.png" alt="Boxly" class="sidebar-logo-icon">
-        <span class="font-display font-extrabold text-lg text-white sidebar-label sidebar-logo-text"></span>
+        <span class="font-display font-extrabold text-lg text-white sidebar-label sidebar-logo-text">Boxly</span>
       </a>
       <button id="collapseToggle" class="collapse-btn" aria-label="Colapsar menú">
         <i data-lucide="panel-left-close" class="h-4 w-4"></i>
@@ -667,8 +667,25 @@
             </form>
           </div>
 
-          <div class="panel lg:col-span-3">
+          <div class="panel lg:col-span-3" id="panelRemitosTraslado">
             <div class="panel-header"><p class="panel-title">Remitos de traslado</p></div>
+            <div class="traslados-filters mt-3">
+              <div>
+                <div class="scan-row" style="margin-top:0">
+                  <i data-lucide="search" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                  <input id="trasladosBuscar" type="text" class="scan-input" placeholder="Buscar por N° de remisión o usuario..." autocomplete="off">
+                </div>
+                <p class="text-xs text-slate-400 mt-1">Buscá por número de remisión (ej: REM-0004) o por el nombre de quien lo creó o lo recibió.</p>
+              </div>
+              <div>
+                <label class="form-label" style="margin-top:0">Desde</label>
+                <input id="trasladosFechaDesde" type="date" class="form-input">
+              </div>
+              <div>
+                <label class="form-label" style="margin-top:0">Hasta</label>
+                <input id="trasladosFechaHasta" type="date" class="form-input">
+              </div>
+            </div>
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead><tr><th>Remisión</th><th>Fecha</th><th>Origen</th><th>Destino</th><th>Estado</th><th>Creado por</th><th class="text-right">Acciones</th></tr></thead>
