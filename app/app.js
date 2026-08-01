@@ -1397,6 +1397,14 @@ function formatDate(iso) {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+// Igual que formatDate(), pero con el año en 2 dígitos (26 en vez de 2026).
+// Se usa en la tabla de Traslados para ganar espacio horizontal, sobre todo
+// en celular, donde "01/08/2026" ocupaba dos líneas dentro de la columna.
+function formatDateCorto(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
 function statusForStock(stock, stockMinimo) {
   if (stock <= stockMinimo / 2) return "critical";
   if (stock <= stockMinimo) return "low";
@@ -1546,19 +1554,19 @@ const sidebarLinks = document.querySelectorAll(".sidebar-link");
 const sections = document.querySelectorAll(".app-section");
 
 const SECTION_META = {
-  dashboard: { title: "Dashboard", subtitle: "Bienvenido de nuevo, acá está el resumen de tu inventario." },
-  productos: { title: "Productos", subtitle: "Gestioná el catálogo completo de tu negocio." },
-  entradas: { title: "Entradas", subtitle: "Registrá el ingreso de mercadería a tu inventario." },
-  salidas: { title: "Salidas", subtitle: "Registrá ventas y salidas de stock." },
-  inventario: { title: "Inventario", subtitle: "Vista completa del estado de tu stock." },
-  reportes: { title: "Reportes", subtitle: "Métricas clave de tu inventario." },
-  alertas: { title: "Alertas", subtitle: "Productos que necesitan tu atención." },
-  traslados: { title: "Traslados", subtitle: "Remisiones y traslados de stock entre sucursales." },
-  usuarios: { title: "Usuarios", subtitle: "Administrá quién accede a tu cuenta." },
-  sucursales: { title: "Sucursales", subtitle: "Administrá las sucursales de tu negocio." },
-  "mi-plan": { title: "Mi Plan", subtitle: "Tu suscripción, límites de uso y facturación." },
-  configuracion: { title: "Configuración", subtitle: "Ajustá los datos de tu negocio." },
-  ayuda: { title: "Ayuda y soporte", subtitle: "Estamos para ayudarte con Boxly." }
+  dashboard: { title: "Dashboard", subtitle: "Bienvenido de nuevo, acá está el resumen de tu inventario.", icon: "layout-dashboard" },
+  productos: { title: "Productos", subtitle: "Gestioná el catálogo completo de tu negocio.", icon: "box" },
+  entradas: { title: "Entradas", subtitle: "Registrá el ingreso de mercadería a tu inventario.", icon: "arrow-down-to-line" },
+  salidas: { title: "Salidas", subtitle: "Registrá ventas y salidas de stock.", icon: "arrow-up-from-line" },
+  inventario: { title: "Inventario", subtitle: "Vista completa del estado de tu stock.", icon: "warehouse" },
+  reportes: { title: "Reportes", subtitle: "Métricas clave de tu inventario.", icon: "bar-chart-2" },
+  alertas: { title: "Alertas", subtitle: "Productos que necesitan tu atención.", icon: "alert-triangle" },
+  traslados: { title: "Traslados", subtitle: "Remisiones y traslados de stock entre sucursales.", icon: "truck" },
+  usuarios: { title: "Usuarios", subtitle: "Administrá quién accede a tu cuenta.", icon: "users" },
+  sucursales: { title: "Sucursales", subtitle: "Administrá las sucursales de tu negocio.", icon: "store" },
+  "mi-plan": { title: "Mi Plan", subtitle: "Tu suscripción, límites de uso y facturación.", icon: "gem" },
+  configuracion: { title: "Configuración", subtitle: "Ajustá los datos de tu negocio.", icon: "settings" },
+  ayuda: { title: "Ayuda y soporte", subtitle: "Estamos para ayudarte con Boxly.", icon: "life-buoy" }
 };
 
 
@@ -1578,6 +1586,11 @@ function switchSection(target, opts = {}) {
   if (meta) {
     document.getElementById("pageTitle").textContent = meta.title;
     document.getElementById("pageSubtitle").textContent = meta.subtitle;
+    const pageIcon = document.getElementById("pageIcon");
+    if (pageIcon) {
+      pageIcon.innerHTML = `<i data-lucide="${meta.icon}" class="h-4 w-4"></i>`;
+      refreshIcons();
+    }
   }
   renderSection(target);
   appShell.classList.remove("mobile-open");
@@ -2384,6 +2397,112 @@ function populateCategorySelect(selectEl) {
    "Depósito #1" veía "(stock: 41)" cuando en realidad esa sucursal puntual
    tenía 0 — el 41 era la suma de todo el negocio. Ahora, si se pasa
    sucursalId, se muestra el stock REAL de esa sucursal puntual. */
+/* Buscador de producto con autocompletado (Entradas/Salidas): reemplaza el
+   <select> nativo, que obligaba a abrir un desplegable larguísimo en el
+   celular. Ahora el campo es un input de texto: al escribir, se filtran los
+   productos por nombre o SKU (mismo criterio que el buscador de la sección
+   Productos) y aparecen como opciones tocables debajo. Al elegir una, se
+   guarda el id real en un <input type="hidden"> que el resto del código usa
+   exactamente igual que antes (registerMovement, escaneo, etc.). */
+const PRODUCT_COMBOS = {};
+const PRODUCT_COMBO_ON_SELECT = {};
+
+function productComboLabel(p, sucursalId) {
+  const stockMostrado = sucursalId ? stockDeSucursal(p, sucursalId) : stockVisible(p);
+  return `${p.nombre} · ${p.sku} · ${p.categoria} (stock: ${stockMostrado})`;
+}
+
+function loadProductCombo(searchId, hiddenId, listId, categoria, sucursalId, clearOnSelect) {
+  const list = STORE.products.filter((p) => !categoria || p.categoria === categoria);
+  PRODUCT_COMBOS[searchId] = { list, hiddenId, listId, sucursalId, clearOnSelect: !!clearOnSelect };
+  // Traslados no usa un campo oculto de "producto elegido" (cada selección se
+  // agrega directo a la lista del remito, ver agregarProductoATraslado), así
+  // que hiddenId puede venir null/undefined.
+  const hidden = hiddenId ? document.getElementById(hiddenId) : null;
+  // Si el producto que ya estaba elegido quedó afuera del filtro (cambió la
+  // categoría o la sucursal), se limpia para no dejar un id "fantasma" cargado.
+  if (hidden && hidden.value && !list.some((p) => p.id === hidden.value)) {
+    hidden.value = "";
+    document.getElementById(searchId).value = "";
+  }
+}
+
+function renderProductComboList(searchId) {
+  const combo = PRODUCT_COMBOS[searchId];
+  if (!combo) return;
+  const searchInput = document.getElementById(searchId);
+  const listEl = document.getElementById(combo.listId);
+  const q = searchInput.value.trim().toLowerCase();
+  const matches = combo.list
+    .filter((p) => !q || p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+    .slice(0, 30);
+
+  listEl.innerHTML = matches.length
+    ? matches.map((p) => `<button type="button" class="product-combo-item" data-id="${p.id}">${productComboLabel(p, combo.sucursalId)}</button>`).join("")
+    : `<p class="product-combo-empty">Sin coincidencias</p>`;
+  listEl.classList.remove("hidden");
+
+  listEl.querySelectorAll("[data-id]").forEach((btn) => {
+    btn.addEventListener("click", () => selectProductCombo(searchId, btn.getAttribute("data-id")));
+  });
+}
+
+function selectProductCombo(searchId, productId) {
+  const combo = PRODUCT_COMBOS[searchId];
+  if (!combo) return;
+  const product = combo.list.find((p) => p.id === productId) || getProduct(productId);
+  if (combo.hiddenId) document.getElementById(combo.hiddenId).value = productId;
+  document.getElementById(searchId).value = combo.clearOnSelect
+    ? ""
+    : (product ? productComboLabel(product, combo.sucursalId) : "");
+  document.getElementById(combo.listId).classList.add("hidden");
+  // Al elegir un producto (de la lista o vía escaneo), dejamos el campo con el
+  // producto encontrado ya cargado y, si hay un callback registrado (ver
+  // setupProductCombo), lo disparamos — en Entradas/Salidas se usa para
+  // enfocar directo el campo de Cantidad, y en Traslados para agregarlo al
+  // remito y dejar el campo listo para buscar el siguiente producto.
+  if (PRODUCT_COMBO_ON_SELECT[searchId]) PRODUCT_COMBO_ON_SELECT[searchId](product);
+}
+
+/* onSelect (opcional) se dispara cada vez que se elige un producto de la
+   lista de sugerencias — Entradas/Salidas lo usan para saltar directo al
+   campo de Cantidad una vez encontrado el producto. */
+function setupProductCombo(searchId, listId, onSelect) {
+  const searchInput = document.getElementById(searchId);
+  const listEl = document.getElementById(listId);
+  if (!searchInput || !listEl) return;
+  // Usamos el contenedor ".product-combo" (y no el padre inmediato) para el
+  // chequeo de "click afuera": en Entradas/Salidas el campo de búsqueda vive
+  // dentro de un .scan-row (con el ícono y el botón de cámara), que a su vez
+  // está dentro de .product-combo junto con la lista de sugerencias.
+  const container = searchInput.closest(".product-combo") || searchInput.parentElement;
+  searchInput.addEventListener("input", () => renderProductComboList(searchId));
+  searchInput.addEventListener("focus", () => renderProductComboList(searchId));
+  document.addEventListener("click", (e) => {
+    if (!container.contains(e.target)) listEl.classList.add("hidden");
+  });
+  if (onSelect) PRODUCT_COMBO_ON_SELECT[searchId] = onSelect;
+}
+// Entradas y Salidas comparten un único campo para escanear (pistola/cámara)
+// y para buscar por nombre/SKU con texto predictivo — ver setupScanInput()
+// más abajo, que reutiliza este mismo combo para el Enter de un lector físico.
+setupProductCombo("entradaScan", "entradaProductoList", () => {
+  const cantidad = document.getElementById("entradaCantidad");
+  if (cantidad) cantidad.focus();
+});
+setupProductCombo("salidaScan", "salidaProductoList", () => {
+  const cantidad = document.getElementById("salidaCantidad");
+  if (cantidad) cantidad.focus();
+});
+// En Traslados cada producto elegido se agrega directo al remito (no llena
+// un solo campo como en Entradas/Salidas), así que el campo queda vacío y
+// enfocado listo para buscar/escanear el siguiente producto.
+setupProductCombo("trasladoScan", "trasladoProductoList", (product) => {
+  if (product) agregarProductoATraslado(product.id);
+  const scanInput = document.getElementById("trasladoScan");
+  if (scanInput) scanInput.focus();
+});
+
 function populateProductSelect(selectEl, categoria, sucursalId) {
   const current = selectEl.value;
   const list = STORE.products.filter((p) => !categoria || p.categoria === categoria);
@@ -2501,7 +2620,7 @@ function renderMovementHistory(tipo, tbodyId, emptyId, filterPrefix) {
            </button>`
         : `<span class="text-slate-300">—</span>`;
       return `<tr>
-        <td class="font-mono text-xs text-slate-400">${formatDate(m.fecha)}</td>
+        <td class="font-mono text-xs text-slate-400">${formatDateCorto(m.fecha)}</td>
         <td class="text-slate-400">${sucursalName(m.sucursalId)}</td>
         <td class="font-medium text-ink">${product ? product.nombre : "Producto eliminado"}</td>
         <td class="font-mono ${tipo === "entrada" ? "text-greendark" : "text-red-500"}">${tipo === "entrada" ? "+" : "−"}${m.cantidad}</td>
@@ -2575,7 +2694,7 @@ function renderEntradas() {
   populateSucursalSelect(document.getElementById("entradaSucursal"));
   const categoriaFiltro = document.getElementById("entradaCategoriaFiltro");
   populateCategorySelect(categoriaFiltro);
-  populateProductSelect(document.getElementById("entradaProducto"), categoriaFiltro.value, document.getElementById("entradaSucursal").value);
+  loadProductCombo("entradaScan", "entradaProducto", "entradaProductoList", categoriaFiltro.value, document.getElementById("entradaSucursal").value);
   renderMovementHistory("entrada", "entradasHistoryBody", "entradasEmptyState", "entradas");
 }
 
@@ -2583,7 +2702,7 @@ function renderSalidas() {
   populateSucursalSelect(document.getElementById("salidaSucursal"));
   const categoriaFiltro = document.getElementById("salidaCategoriaFiltro");
   populateCategorySelect(categoriaFiltro);
-  populateProductSelect(document.getElementById("salidaProducto"), categoriaFiltro.value, document.getElementById("salidaSucursal").value);
+  loadProductCombo("salidaScan", "salidaProducto", "salidaProductoList", categoriaFiltro.value, document.getElementById("salidaSucursal").value);
   renderMovementHistory("salida", "salidasHistoryBody", "salidasEmptyState", "salidas");
 }
 
@@ -2607,20 +2726,20 @@ function renderSalidas() {
 });
 
 document.getElementById("entradaCategoriaFiltro").addEventListener("change", (e) => {
-  populateProductSelect(document.getElementById("entradaProducto"), e.target.value, document.getElementById("entradaSucursal").value);
+  loadProductCombo("entradaScan", "entradaProducto", "entradaProductoList", e.target.value, document.getElementById("entradaSucursal").value);
 });
 document.getElementById("salidaCategoriaFiltro").addEventListener("change", (e) => {
-  populateProductSelect(document.getElementById("salidaProducto"), e.target.value, document.getElementById("salidaSucursal").value);
+  loadProductCombo("salidaScan", "salidaProducto", "salidaProductoList", e.target.value, document.getElementById("salidaSucursal").value);
 });
 // FIX: cuando el Administrador cambia la sucursal del movimiento, el stock que
 // se muestra al lado de cada producto tiene que actualizarse también — antes
 // se quedaba pegado al stock de la sucursal que estuviera seleccionada al
 // momento de entrar a la pantalla (o al total, si no se había tocado nada).
 document.getElementById("entradaSucursal").addEventListener("change", (e) => {
-  populateProductSelect(document.getElementById("entradaProducto"), document.getElementById("entradaCategoriaFiltro").value, e.target.value);
+  loadProductCombo("entradaScan", "entradaProducto", "entradaProductoList", document.getElementById("entradaCategoriaFiltro").value, e.target.value);
 });
 document.getElementById("salidaSucursal").addEventListener("change", (e) => {
-  populateProductSelect(document.getElementById("salidaProducto"), document.getElementById("salidaCategoriaFiltro").value, e.target.value);
+  loadProductCombo("salidaScan", "salidaProducto", "salidaProductoList", document.getElementById("salidaCategoriaFiltro").value, e.target.value);
 });
 
 function registerMovement(tipo, productSelectId, cantidadId, notaId, formId, sucursalSelectId) {
@@ -2999,8 +3118,12 @@ modalClose.addEventListener("click", () => { CONTACTOS_MODAL_ABIERTO = null; });
 
 /* ---------------------------- Buscador / escáner de código ---------------------------- */
 const MOVEMENT_FIELD_IDS = {
-  entrada: { scan: "entradaScan", cam: "entradaScanCam", select: "entradaProducto", categoria: "entradaCategoriaFiltro", cantidad: "entradaCantidad" },
-  salida: { scan: "salidaScan", cam: "salidaScanCam", select: "salidaProducto", categoria: "salidaCategoriaFiltro", cantidad: "salidaCantidad" }
+  // "search" y "scan" apuntan al mismo campo: el escáner y el buscador de
+  // producto por nombre/SKU se unificaron en un solo input (ver setupScanInput
+  // y setupProductCombo). Se mantienen las dos claves separadas para no tener
+  // que tocar el resto del código que las usa con distinto propósito.
+  entrada: { scan: "entradaScan", cam: "entradaScanCam", select: "entradaProducto", search: "entradaScan", list: "entradaProductoList", categoria: "entradaCategoriaFiltro", cantidad: "entradaCantidad" },
+  salida: { scan: "salidaScan", cam: "salidaScanCam", select: "salidaProducto", search: "salidaScan", list: "salidaProductoList", categoria: "salidaCategoriaFiltro", cantidad: "salidaCantidad" }
 };
 
 function setupScanInput(tipo) {
@@ -3032,10 +3155,11 @@ function handleScannedCode(rawCode, tipo) {
 
   if (product) {
     document.getElementById(ids.categoria).value = "";
-    populateProductSelect(document.getElementById(ids.select), "");
-    document.getElementById(ids.select).value = product.id;
-    document.getElementById(ids.scan).value = "";
-    document.getElementById(ids.cantidad).focus();
+    loadProductCombo(ids.search, ids.select, ids.list, "", document.getElementById(tipo === "entrada" ? "entradaSucursal" : "salidaSucursal").value);
+    // selectProductCombo deja el campo mostrando el producto encontrado (en
+    // vez de vaciarlo) y enfoca Cantidad solo — ver el callback registrado en
+    // setupProductCombo.
+    selectProductCombo(ids.search, product.id);
     showToast(`Producto encontrado: ${product.nombre}`, "success");
     return;
   }
@@ -3051,12 +3175,11 @@ function handleScannedCode(rawCode, tipo) {
         defaultSucursalId: document.getElementById(tipo === "entrada" ? "entradaSucursal" : "salidaSucursal").value,
         onSaved: (newProduct) => {
           document.getElementById(ids.categoria).value = "";
-          populateProductSelect(document.getElementById(ids.select), "");
-          document.getElementById(ids.select).value = newProduct.id;
           document.getElementById(ids.scan).value = "";
-          document.getElementById(ids.cantidad).focus();
           renderEntradas();
           renderSalidas();
+          selectProductCombo(ids.search, newProduct.id);
+          document.getElementById(ids.cantidad).focus();
         }
       });
     }
@@ -3302,19 +3425,25 @@ function setupTrasladoForm() {
   if (desdeInput) desdeInput.addEventListener("change", () => { PAGINA_ACTUAL.traslados = 1; renderTraslados(); });
   if (hastaInput) hastaInput.addEventListener("change", () => { PAGINA_ACTUAL.traslados = 1; renderTraslados(); });
 
-  populateProductSelect(document.getElementById("trasladoProductoManual"), "");
+  const trasladoCategoriaFiltroEl = document.getElementById("trasladoCategoriaFiltro");
+  loadProductCombo("trasladoScan", null, "trasladoProductoList", trasladoCategoriaFiltroEl ? trasladoCategoriaFiltroEl.value : "", document.getElementById("trasladoOrigen").value, true);
 
-  document.getElementById("trasladoAgregarManual").addEventListener("click", () => {
-    const select = document.getElementById("trasladoProductoManual");
-    agregarProductoATraslado(select.value);
-  });
+  if (trasladoCategoriaFiltroEl) {
+    trasladoCategoriaFiltroEl.addEventListener("change", (e) => {
+      loadProductCombo("trasladoScan", null, "trasladoProductoList", e.target.value, document.getElementById("trasladoOrigen").value, true);
+    });
+  }
 
   document.getElementById("trasladoOrigen").addEventListener("change", () => {
     if (document.getElementById("trasladoDestino").value === document.getElementById("trasladoOrigen").value) {
       showToast("El origen y el destino no pueden ser la misma sucursal.", "error");
     }
-    populateProductSelect(document.getElementById("trasladoProductoManual"), "", document.getElementById("trasladoOrigen").value);
+    loadProductCombo("trasladoScan", null, "trasladoProductoList", trasladoCategoriaFiltroEl ? trasladoCategoriaFiltroEl.value : "", document.getElementById("trasladoOrigen").value, true);
     renderTrasladoItemsTable();
+    actualizarPanelTrasladoSegunRol();
+  });
+  document.getElementById("trasladoDestino").addEventListener("change", () => {
+    actualizarPanelTrasladoSegunRol();
   });
 
   const scanInput = document.getElementById("trasladoScan");
@@ -3330,6 +3459,7 @@ function setupTrasladoForm() {
     }
     agregarProductoATraslado(product.id);
     scanInput.value = "";
+    document.getElementById("trasladoProductoList").classList.add("hidden");
     showToast(`Agregado al remito: ${product.nombre}`, "success");
   });
   document.getElementById("trasladoScanCam").addEventListener("click", () => {
@@ -3868,13 +3998,6 @@ function eliminarTraslado(trasladoId) {
   }
 }
 
-const TRASLADO_ESTADO_TAG = {
-  solicitado: `<span class="status-tag status-low">Pendiente de aprobación</span>`,
-  pendiente: `<span class="status-tag status-low">En tránsito</span>`,
-  recibido: `<span class="status-tag status-ok">Recibido</span>`,
-  cancelado: `<span class="status-tag status-critical">Cancelado</span>`,
-  rechazado: `<span class="status-tag status-critical">Rechazado</span>`
-};
 const TRASLADO_ESTADO_LABEL = {
   solicitado: "Pendiente de aprobación",
   pendiente: "En tránsito",
@@ -3882,18 +4005,47 @@ const TRASLADO_ESTADO_LABEL = {
   cancelado: "Cancelado",
   rechazado: "Rechazado"
 };
+// FIX: la tabla de Traslados venía con un badge de texto completo por estado
+// ("Pendiente de aprobación", etc.), lo que en celular ocupaba casi toda la
+// columna y comprimía el resto. Ahora es un ícono chico con el mismo color
+// que antes; el nombre del estado se ve al pasar el mouse (title, escritorio)
+// o al tocarlo (toast, celular) — ver el listener de "[data-estado-icono]"
+// más abajo en renderTraslados().
+const TRASLADO_ESTADO_ICON = {
+  solicitado: { icon: "clock", cls: "status-low" },
+  pendiente: { icon: "truck", cls: "status-low" },
+  recibido: { icon: "check-check", cls: "status-ok" },
+  cancelado: { icon: "x-circle", cls: "status-critical" },
+  rechazado: { icon: "ban", cls: "status-critical" }
+};
+// Versión con texto completo, para el modal de detalle del remito (ahí sí
+// hay espacio de sobra, a diferencia de la tabla de Traslados).
+function trasladoEstadoTagCompleto(estado) {
+  const info = TRASLADO_ESTADO_ICON[estado] || { cls: "" };
+  const label = TRASLADO_ESTADO_LABEL[estado] || estado;
+  return `<span class="status-tag ${info.cls}">${label}</span>`;
+}
+function trasladoEstadoTag(estado) {
+  const info = TRASLADO_ESTADO_ICON[estado] || { icon: "circle", cls: "" };
+  const label = TRASLADO_ESTADO_LABEL[estado] || estado;
+  return `<button type="button" class="status-icon-btn ${info.cls}" data-estado-icono="${label}" title="${label}" aria-label="Estado: ${label}">
+    <i data-lucide="${info.icon}" class="h-3.5 w-3.5"></i>
+  </button>`;
+}
 
 function renderTraslados() {
   actualizarPanelTrasladoSegunRol();
   populateTrasladoSucursalSelects();
   // FIX: antes esto se poblaba una única vez en setupTrasladoForm(), al cargar
   // la página — si en ese momento STORE.products todavía no había llegado de
-  // Firestore (lo normal, porque es asíncrono), el <select> quedaba vacío para
-  // siempre y "Agregar manualmente" no tenía nada para agregar. Ahora se
-  // repuebla cada vez que se renderiza la sección (cada snapshot de productos
-  // o traslados dispara renderTraslados()), igual que ya hacen Entradas/Salidas.
-  const manualSelect = document.getElementById("trasladoProductoManual");
-  if (manualSelect) populateProductSelect(manualSelect, "", document.getElementById("trasladoOrigen").value);
+  // Firestore (lo normal, porque es asíncrono), el combo quedaba vacío para
+  // siempre y no había nada para agregar. Ahora se repuebla cada vez que se
+  // renderiza la sección (cada snapshot de productos o traslados dispara
+  // renderTraslados()), igual que ya hacen Entradas/Salidas.
+  const trasladoScanInput = document.getElementById("trasladoScan");
+  const trasladoCategoriaFiltro = document.getElementById("trasladoCategoriaFiltro");
+  if (trasladoCategoriaFiltro) populateCategorySelect(trasladoCategoriaFiltro);
+  if (trasladoScanInput) loadProductCombo("trasladoScan", null, "trasladoProductoList", trasladoCategoriaFiltro ? trasladoCategoriaFiltro.value : "", document.getElementById("trasladoOrigen").value, true);
   renderTrasladoItemsTable();
 
   const tbody = document.getElementById("trasladosTableBody");
@@ -3922,18 +4074,18 @@ function renderTraslados() {
       const puedeEliminar = admin;
       const acciones = [
         `<button class="icon-btn" data-ver-traslado="${t.id}" aria-label="Ver remito" title="Ver remito"><i data-lucide="eye" class="h-4 w-4"></i></button>`,
-        puedeRevisarSolicitud ? `<button class="btn-secondary" data-revisar-solicitud="${t.id}"><i data-lucide="clipboard-check" class="h-4 w-4"></i> Revisar</button>` : "",
+        puedeRevisarSolicitud ? `<button class="btn-secondary" data-revisar-solicitud="${t.id}" title="Revisar"><i data-lucide="clipboard-check" class="h-4 w-4"></i> Revisar</button>` : "",
         puedeCancelarPropiaSolicitud ? `<button class="icon-btn danger" data-cancelar-solicitud="${t.id}" aria-label="Cancelar solicitud" title="Cancelar solicitud"><i data-lucide="x-circle" class="h-4 w-4"></i></button>` : "",
-        puedeRecibir ? `<button class="btn-secondary" data-recibir-traslado="${t.id}"><i data-lucide="package-check" class="h-4 w-4"></i> Recibir</button>` : "",
+        puedeRecibir ? `<button class="btn-secondary" data-recibir-traslado="${t.id}" title="Recibir"><i data-lucide="package-check" class="h-4 w-4"></i> Recibir</button>` : "",
         puedeCancelar ? `<button class="icon-btn danger" data-cancelar-traslado="${t.id}" aria-label="Cancelar"><i data-lucide="x-circle" class="h-4 w-4"></i></button>` : "",
         puedeEliminar ? `<button class="icon-btn danger" data-eliminar-traslado="${t.id}" aria-label="Eliminar" title="Eliminar"><i data-lucide="trash-2" class="h-4 w-4"></i></button>` : ""
       ].join(" ");
       return `<tr>
         <td class="font-mono font-semibold text-ink">${t.numero}</td>
-        <td class="font-mono text-xs text-slate-400">${formatDate(t.fechaCreacion)}</td>
+        <td class="font-mono text-xs text-slate-400">${formatDateCorto(t.fechaCreacion)}</td>
         <td class="text-slate-500">${t.sucursalOrigenNombre || sucursalName(t.sucursalOrigenId)}</td>
         <td class="text-slate-500">${t.sucursalDestinoNombre || sucursalName(t.sucursalDestinoId)}</td>
-        <td>${TRASLADO_ESTADO_TAG[t.estado] || t.estado}</td>
+        <td class="text-center">${trasladoEstadoTag(t.estado)}</td>
         <td class="text-slate-400">${t.creadoPorNombre || "—"}</td>
         <td class="text-right"><div class="flex justify-end gap-2">${acciones}</div></td>
       </tr>`;
@@ -3943,6 +4095,9 @@ function renderTraslados() {
   empty.classList.toggle("hidden", items.length > 0);
   refreshIcons();
 
+  tbody.querySelectorAll("[data-estado-icono]").forEach((btn) => {
+    btn.addEventListener("click", () => showToast(btn.getAttribute("data-estado-icono"), "info"));
+  });
   tbody.querySelectorAll("[data-ver-traslado]").forEach((btn) => {
     btn.addEventListener("click", () => abrirDetalleTraslado(btn.getAttribute("data-ver-traslado")));
   });
@@ -4063,7 +4218,7 @@ function abrirDetalleTraslado(trasladoId) {
     `Remito ${t.numero}`,
     `<div class="traslado-detalle">
        <div class="flex items-center justify-between mb-3">
-         ${TRASLADO_ESTADO_TAG[t.estado] || t.estado}
+         ${trasladoEstadoTagCompleto(t.estado)}
          <span class="text-xs text-slate-400">N° ${t.numero}</span>
        </div>
        <div class="traslado-detalle-info-grid">${infoHtml}</div>
@@ -5382,7 +5537,7 @@ function renderAlertas() {
       const sucursalId = btn.getAttribute("data-restock-sucursal");
       switchSection("entradas");
       requestAnimationFrame(() => {
-        document.getElementById("entradaProducto").value = id;
+        selectProductCombo("entradaScan", id);
         const sucursalSelect = document.getElementById("entradaSucursal");
         if (sucursalSelect && !sucursalSelect.disabled && sucursalId) sucursalSelect.value = sucursalId;
         document.getElementById("entradaCantidad").focus();
@@ -5396,6 +5551,32 @@ function renderAlertas() {
    ========================================================================= */
 function roleBadgeColor(rol) {
   return { Administrador: "status-critical", Encargado: "status-low", Editor: "status-low", Visualizador: "status-ok" }[rol] || "status-ok";
+}
+
+// FIX: "Rol" y "Estado" en la tabla de Usuarios venían como badges de texto
+// completo ("Administrador", "Activo · ilimitado", etc.), lo que dejaba muy
+// poco lugar para "Sucursal" y "Acciones" y todo quedaba amontonado. Mismo
+// criterio que ya usamos en la tabla de Traslados: ahora son un ícono chico
+// con el mismo color de antes, y el nombre completo se ve al tocar/pasar el
+// mouse (title + toast, mismo listener "[data-estado-icono]").
+function usuarioRolTag(rol) {
+  const esAdmin = rol === "Administrador";
+  const icon = esAdmin ? "shield-check" : "user-cog";
+  const cls = roleBadgeColor(rol);
+  return `<button type="button" class="status-icon-btn ${cls}" data-estado-icono="${rol}" title="${rol}" aria-label="Rol: ${rol}">
+    <i data-lucide="${icon}" class="h-3.5 w-3.5"></i>
+  </button>`;
+}
+function usuarioEstadoTag(estadoLabel, estadoClass) {
+  let icon = "circle";
+  if (estadoLabel.startsWith("Activo")) icon = "check-circle-2";
+  else if (estadoLabel === "Deshabilitado") icon = "user-x";
+  else if (estadoLabel === "Creando...") icon = "loader-circle";
+  else if (estadoLabel === "Error al crear") icon = "alert-triangle";
+  const cls = estadoClass === "encargado-status-activo" ? "status-ok" : estadoClass === "encargado-status-pendiente" ? "status-low" : "status-critical";
+  return `<button type="button" class="status-icon-btn ${cls}" data-estado-icono="${estadoLabel}" title="${estadoLabel}" aria-label="Estado: ${estadoLabel}">
+    <i data-lucide="${icon}" class="h-3.5 w-3.5"></i>
+  </button>`;
 }
 
 /* La página "Usuarios" ahora refleja las cuentas REALES: el dueño de la cuenta
@@ -5451,9 +5632,9 @@ function renderUsuarios() {
           ${f.nombre}${f.esDueno ? ` <span class="status-tag status-ok">Vos</span>` : ""}
         </td>
         <td class="text-slate-400">${f.email}</td>
-        <td><span class="status-tag ${roleBadgeColor(f.esDueno ? "Administrador" : "Encargado")}">${f.rol}</span></td>
+        <td class="text-center">${usuarioRolTag(f.esDueno ? "Administrador" : "Encargado")}</td>
         <td class="text-slate-400">${f.sucursalLabel}</td>
-        <td class="${f.estadoClass} font-mono text-xs">${f.estadoLabel}</td>
+        <td class="text-center">${usuarioEstadoTag(f.estadoLabel, f.estadoClass)}</td>
         <td class="text-right">${actions}</td>
       </tr>`;
     })
@@ -5461,6 +5642,10 @@ function renderUsuarios() {
 
   if (empty) empty.classList.toggle("hidden", filas.length > 0);
   refreshIcons();
+
+  tbody.querySelectorAll("[data-estado-icono]").forEach((btn) => {
+    btn.addEventListener("click", () => showToast(btn.getAttribute("data-estado-icono"), "info"));
+  });
 
   tbody.querySelectorAll("[data-us-invite]").forEach((btn) => {
     btn.addEventListener("click", () => {

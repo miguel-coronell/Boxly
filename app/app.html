@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Boxly · Panel de control</title>
 <meta name="description" content="Panel de control de Boxly: productos, entradas, salidas, inventario, reportes, alertas, usuarios y configuración.">
 
@@ -147,8 +147,11 @@
           <i data-lucide="menu" class="h-5 w-5"></i>
         </button>
         <div>
-          <h1 id="pageTitle" class="font-display font-bold text-lg sm:text-xl text-ink">Dashboard</h1>
-          <p id="pageSubtitle" class="text-xs text-slate-400 hidden sm:block">Bienvenido de nuevo, acá está el resumen de tu inventario.</p>
+          <h1 class="page-title-row font-display font-bold text-lg sm:text-xl text-ink">
+            <span id="pageIcon" class="page-title-icon"><i data-lucide="layout-dashboard" class="h-4 w-4"></i></span>
+            <span id="pageTitle">Dashboard</span>
+          </h1>
+          <p id="pageSubtitle" class="text-xs text-slate-400">Bienvenido de nuevo, acá está el resumen de tu inventario.</p>
         </div>
       </div>
 
@@ -379,23 +382,25 @@
               <label class="form-label" style="margin-top:0">Sucursal</label>
               <select id="entradaSucursal" class="form-input" required></select>
 
-              <label class="form-label">Escanear o buscar (SKU / código de barras)</label>
-              <div class="scan-row">
-                <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
-                <input id="entradaScan" type="text" class="scan-input" placeholder="Escaneá el producto o escribí el código y presioná Enter" autocomplete="off">
-                <button type="button" id="entradaScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
-                  <i data-lucide="camera" class="h-4 w-4"></i>
-                </button>
-              </div>
-              <p class="scan-hint">Funciona con lector físico (pistola/USB) o con la cámara del celular/PC.</p>
-
               <label class="form-label">Filtrar por categoría</label>
               <select id="entradaCategoriaFiltro" class="form-input">
                 <option value="">Todas las categorías</option>
               </select>
 
-              <label class="form-label">Producto</label>
-              <select id="entradaProducto" class="form-input" required></select>
+              <label class="form-label">Producto (escaneá o escribí el nombre / SKU)</label>
+              <div class="product-combo">
+                <div class="scan-row">
+                  <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                  <input id="entradaScan" type="text" class="scan-input" placeholder="Escaneá, o escribí el nombre/SKU y elegí de la lista" autocomplete="off">
+                  <button type="button" id="entradaScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
+                    <i data-lucide="camera" class="h-4 w-4"></i>
+                  </button>
+                </div>
+                <input type="hidden" id="entradaProducto">
+                <div id="entradaProductoList" class="product-combo-list hidden"></div>
+              </div>
+              <p class="scan-hint">Funciona con lector físico (pistola/USB), cámara, o escribiendo el nombre/SKU del producto.</p>
+
               <label class="form-label">Cantidad</label>
               <input id="entradaCantidad" type="number" min="1" step="1" class="form-input" placeholder="0" required>
               <label class="form-label">Nota (opcional)</label>
@@ -435,7 +440,7 @@
               </div>
             </div>
             <div class="overflow-x-auto mt-2">
-              <table class="app-table">
+              <table class="app-table table-hist">
                 <thead>
                   <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Proveedor</th><th>Nota</th><th>Registrado por</th><th class="text-right">Acciones</th></tr>
                 </thead>
@@ -457,23 +462,25 @@
               <label class="form-label" style="margin-top:0">Sucursal</label>
               <select id="salidaSucursal" class="form-input" required></select>
 
-              <label class="form-label">Escanear o buscar (SKU / código de barras)</label>
-              <div class="scan-row">
-                <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
-                <input id="salidaScan" type="text" class="scan-input" placeholder="Escaneá el producto o escribí el código y presioná Enter" autocomplete="off">
-                <button type="button" id="salidaScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
-                  <i data-lucide="camera" class="h-4 w-4"></i>
-                </button>
-              </div>
-              <p class="scan-hint">Funciona con lector físico (pistola/USB) o con la cámara del celular/PC.</p>
-
               <label class="form-label">Filtrar por categoría</label>
               <select id="salidaCategoriaFiltro" class="form-input">
                 <option value="">Todas las categorías</option>
               </select>
 
-              <label class="form-label">Producto</label>
-              <select id="salidaProducto" class="form-input" required></select>
+              <label class="form-label">Producto (escaneá o escribí el nombre / SKU)</label>
+              <div class="product-combo">
+                <div class="scan-row">
+                  <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                  <input id="salidaScan" type="text" class="scan-input" placeholder="Escaneá, o escribí el nombre/SKU y elegí de la lista" autocomplete="off">
+                  <button type="button" id="salidaScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
+                    <i data-lucide="camera" class="h-4 w-4"></i>
+                  </button>
+                </div>
+                <input type="hidden" id="salidaProducto">
+                <div id="salidaProductoList" class="product-combo-list hidden"></div>
+              </div>
+              <p class="scan-hint">Funciona con lector físico (pistola/USB), cámara, o escribiendo el nombre/SKU del producto.</p>
+
               <label class="form-label">Cantidad</label>
               <input id="salidaCantidad" type="number" min="1" step="1" class="form-input" placeholder="0" required>
               <label class="form-label">Nota (opcional)</label>
@@ -513,7 +520,7 @@
               </div>
             </div>
             <div class="overflow-x-auto mt-2">
-              <table class="app-table">
+              <table class="app-table table-hist">
                 <thead>
                   <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Cliente</th><th>Nota</th><th>Registrado por</th><th class="text-right">Acciones</th></tr>
                 </thead>
@@ -656,7 +663,7 @@
             </div>
 
             <div class="overflow-x-auto mt-3">
-              <table class="app-table">
+              <table class="app-table table-rep">
                 <thead>
                   <tr><th>Fecha</th><th>Sucursal</th><th>Tipo</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Nota</th><th>Registrado por</th></tr>
                 </thead>
@@ -730,23 +737,23 @@
               <label class="form-label">Sucursal destino (recibe)</label>
               <select id="trasladoDestino" class="form-input" required></select>
 
-              <label class="form-label">Escanear o buscar (SKU / código de barras)</label>
-              <div class="scan-row">
-                <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
-                <input id="trasladoScan" type="text" class="scan-input" placeholder="Escaneá el producto o escribí el código y presioná Enter" autocomplete="off">
-                <button type="button" id="trasladoScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
-                  <i data-lucide="camera" class="h-4 w-4"></i>
-                </button>
-              </div>
-              <p class="scan-hint">Cada producto escaneado se agrega a la lista de abajo. Si no tenés lector, buscalo manualmente.</p>
+              <label class="form-label">Filtrar por categoría</label>
+              <select id="trasladoCategoriaFiltro" class="form-input">
+                <option value="">Todas las categorías</option>
+              </select>
 
-              <label class="form-label">Agregar manualmente</label>
-              <div class="flex gap-2">
-                <select id="trasladoProductoManual" class="form-input" style="flex:1"></select>
-                <button type="button" id="trasladoAgregarManual" class="btn-secondary shrink-0" aria-label="Agregar producto">
-                  <i data-lucide="plus" class="h-4 w-4"></i>
-                </button>
+              <label class="form-label">Producto (escaneá o escribí el nombre / SKU para agregar)</label>
+              <div class="product-combo">
+                <div class="scan-row">
+                  <i data-lucide="scan-line" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                  <input id="trasladoScan" type="text" class="scan-input" placeholder="Escaneá, o escribí el nombre/SKU y elegí para agregar" autocomplete="off">
+                  <button type="button" id="trasladoScanCam" class="scan-cam-btn" aria-label="Escanear con cámara">
+                    <i data-lucide="camera" class="h-4 w-4"></i>
+                  </button>
+                </div>
+                <div id="trasladoProductoList" class="product-combo-list hidden"></div>
               </div>
+              <p class="scan-hint">Funciona con lector físico (pistola/USB), cámara, o escribiendo el nombre/SKU — cada producto elegido se agrega a la lista de abajo.</p>
 
               <label class="form-label">Productos del remito</label>
               <div class="overflow-x-auto">
@@ -787,8 +794,8 @@
               </div>
             </div>
             <div class="overflow-x-auto mt-2">
-              <table class="app-table">
-                <thead><tr><th>Remisión</th><th>Fecha</th><th>Origen</th><th>Destino</th><th>Estado</th><th>Creado por</th><th class="text-right">Acciones</th></tr></thead>
+              <table class="app-table table-traslados">
+                <thead><tr><th>Remisión</th><th>Fecha</th><th>Origen</th><th>Destino</th><th class="text-center">Estado</th><th>Creado por</th><th class="text-right">Acciones</th></tr></thead>
                 <tbody id="trasladosTableBody"></tbody>
               </table>
             </div>
@@ -843,9 +850,9 @@
           </div>
           <p class="text-xs text-slate-400 mt-1">Para invitar gente nueva, hacelo desde <strong>Sucursales → Encargados de sucursal</strong>: ahí se crea el acceso real, con contraseña y todo.</p>
           <div class="overflow-x-auto mt-3">
-            <table class="app-table">
+            <table class="app-table table-users">
               <thead>
-                <tr><th>Usuario</th><th>Email</th><th>Rol</th><th>Sucursal</th><th>Estado</th><th class="text-right">Acciones</th></tr>
+                <tr><th>Usuario</th><th>Email</th><th class="text-center">Rol</th><th>Sucursal</th><th class="text-center">Estado</th><th class="text-right">Acciones</th></tr>
               </thead>
               <tbody id="usersTableBody"></tbody>
             </table>
