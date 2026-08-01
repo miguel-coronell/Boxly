@@ -55,7 +55,7 @@
     <div class="sidebar-top">
       <a href="#" class="flex items-center gap-2 shrink-0">
         <img src="../img/boxly-icon.png" alt="Boxly" class="sidebar-logo-icon">
-        <span class="font-display font-extrabold text-lg text-white sidebar-label sidebar-logo-text">Boxly</span>
+        <span class="font-display font-extrabold text-lg text-white sidebar-label sidebar-logo-text"></span>
       </a>
       <button id="collapseToggle" class="collapse-btn" aria-label="Colapsar menú">
         <i data-lucide="panel-left-close" class="h-4 w-4"></i>
@@ -265,6 +265,30 @@
           </div>
         </div>
 
+        <div class="grid lg:grid-cols-3 gap-5 mt-5">
+          <div class="panel" data-reveal style="transition-delay:80ms">
+            <div class="panel-header">
+              <p class="panel-title">Productos más vendidos</p>
+              <button class="panel-link" data-target="salidas">Ver salidas</button>
+            </div>
+            <ul id="topProductosList" class="rank-list mt-2"></ul>
+          </div>
+          <div class="panel" data-reveal style="transition-delay:100ms">
+            <div class="panel-header">
+              <p class="panel-title">Clientes más frecuentes</p>
+              <button class="panel-link" data-target="salidas">Ver salidas</button>
+            </div>
+            <ul id="topClientesList" class="rank-list mt-2"></ul>
+          </div>
+          <div class="panel" data-reveal style="transition-delay:120ms">
+            <div class="panel-header">
+              <p class="panel-title">Proveedores más frecuentes</p>
+              <button class="panel-link" data-target="entradas">Ver entradas</button>
+            </div>
+            <ul id="topProveedoresList" class="rank-list mt-2"></ul>
+          </div>
+        </div>
+
         <div class="panel mt-5" data-reveal style="transition-delay:100ms">
           <div class="panel-header">
             <p class="panel-title">Productos con stock bajo</p>
@@ -276,6 +300,7 @@
                 <tr>
                   <th>Producto</th>
                   <th>Categoría</th>
+                  <th>Sucursal</th>
                   <th>Stock actual</th>
                   <th>Stock mínimo</th>
                   <th>Estado</th>
@@ -284,6 +309,7 @@
               <tbody id="lowStockTableBody"></tbody>
             </table>
           </div>
+          <div id="lowStockPaginacion" class="paginacion-row"></div>
         </div>
       </section>
 
@@ -299,7 +325,7 @@
               <select id="productCategoryFilter" class="filter-select">
                 <option value="">Todas las categorías</option>
               </select>
-              <button id="openAddProduct" class="btn-primary">
+              <button id="openAddProduct" class="btn-primary admin-only">
                 <i data-lucide="plus" class="h-4 w-4"></i>
                 Nuevo producto
               </button>
@@ -316,13 +342,14 @@
                   <th>Stock mín.</th>
                   <th>Precio</th>
                   <th>Estado</th>
-                  <th class="text-right">Acciones</th>
+                  <th class="text-right admin-only">Acciones</th>
                 </tr>
               </thead>
               <tbody id="productsTableBody"></tbody>
             </table>
           </div>
           <p id="productsEmptyState" class="empty-state hidden">No encontramos productos con ese criterio.</p>
+          <div id="productosPaginacion" class="paginacion-row"></div>
         </div>
       </section>
 
@@ -356,6 +383,15 @@
               <input id="entradaCantidad" type="number" min="1" step="1" class="form-input" placeholder="0" required>
               <label class="form-label">Nota (opcional)</label>
               <input id="entradaNota" type="text" class="form-input" placeholder="Ej: Compra a proveedor">
+
+              <label class="form-label">Proveedor (opcional)</label>
+              <div class="contacto-picker">
+                <div class="contacto-picker-info" id="entradaProveedorInfo"><span class="text-slate-400 text-sm">Sin proveedor asignado</span></div>
+                <button type="button" id="entradaProveedorBtn" class="btn-secondary">
+                  <i data-lucide="truck" class="h-4 w-4"></i> Elegir proveedor
+                </button>
+              </div>
+
               <button type="submit" class="btn-primary w-full justify-center mt-2">
                 <i data-lucide="arrow-down-to-line" class="h-4 w-4"></i>
                 Registrar entrada
@@ -364,15 +400,33 @@
           </div>
           <div class="panel lg:col-span-3">
             <div class="panel-header"><p class="panel-title">Historial de entradas</p></div>
+            <div class="traslados-filters mt-3">
+              <div>
+                <div class="scan-row" style="margin-top:0">
+                  <i data-lucide="search" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                  <input id="entradasBuscar" type="text" class="scan-input" placeholder="Buscar por producto, encargado o nota..." autocomplete="off">
+                </div>
+                <p class="text-xs text-slate-400 mt-1">Buscá una entrada en especial por el nombre del producto o de quien la registró.</p>
+              </div>
+              <div>
+                <label class="form-label" style="margin-top:0">Desde</label>
+                <input id="entradasFechaDesde" type="date" class="form-input">
+              </div>
+              <div>
+                <label class="form-label" style="margin-top:0">Hasta</label>
+                <input id="entradasFechaHasta" type="date" class="form-input">
+              </div>
+            </div>
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th><th>Registrado por</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Proveedor</th><th>Nota</th><th>Registrado por</th><th class="text-right">Acciones</th></tr>
                 </thead>
                 <tbody id="entradasHistoryBody"></tbody>
               </table>
             </div>
             <p id="entradasEmptyState" class="empty-state hidden">Todavía no registraste entradas.</p>
+            <div id="entradasPaginacion" class="paginacion-row"></div>
           </div>
         </div>
       </section>
@@ -407,6 +461,15 @@
               <input id="salidaCantidad" type="number" min="1" step="1" class="form-input" placeholder="0" required>
               <label class="form-label">Nota (opcional)</label>
               <input id="salidaNota" type="text" class="form-input" placeholder="Ej: Venta mostrador">
+
+              <label class="form-label">Cliente (opcional)</label>
+              <div class="contacto-picker">
+                <div class="contacto-picker-info" id="salidaClienteInfo"><span class="text-slate-400 text-sm">Sin cliente asignado</span></div>
+                <button type="button" id="salidaClienteBtn" class="btn-secondary">
+                  <i data-lucide="user" class="h-4 w-4"></i> Elegir cliente
+                </button>
+              </div>
+
               <button type="submit" class="btn-primary w-full justify-center mt-2">
                 <i data-lucide="arrow-up-from-line" class="h-4 w-4"></i>
                 Registrar salida
@@ -415,15 +478,33 @@
           </div>
           <div class="panel lg:col-span-3">
             <div class="panel-header"><p class="panel-title">Historial de salidas</p></div>
+            <div class="traslados-filters mt-3">
+              <div>
+                <div class="scan-row" style="margin-top:0">
+                  <i data-lucide="search" class="h-4 w-4 text-slate-400 shrink-0"></i>
+                  <input id="salidasBuscar" type="text" class="scan-input" placeholder="Buscar por producto, encargado o nota..." autocomplete="off">
+                </div>
+                <p class="text-xs text-slate-400 mt-1">Buscá una salida en especial por el nombre del producto o de quien la registró.</p>
+              </div>
+              <div>
+                <label class="form-label" style="margin-top:0">Desde</label>
+                <input id="salidasFechaDesde" type="date" class="form-input">
+              </div>
+              <div>
+                <label class="form-label" style="margin-top:0">Hasta</label>
+                <input id="salidasFechaHasta" type="date" class="form-input">
+              </div>
+            </div>
             <div class="overflow-x-auto mt-2">
               <table class="app-table">
                 <thead>
-                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Nota</th><th>Registrado por</th></tr>
+                  <tr><th>Fecha</th><th>Sucursal</th><th>Producto</th><th>Cantidad</th><th>Cliente</th><th>Nota</th><th>Registrado por</th><th class="text-right">Acciones</th></tr>
                 </thead>
                 <tbody id="salidasHistoryBody"></tbody>
               </table>
             </div>
             <p id="salidasEmptyState" class="empty-state hidden">Todavía no registraste salidas.</p>
+            <div id="salidasPaginacion" class="paginacion-row"></div>
           </div>
         </div>
       </section>
@@ -456,6 +537,7 @@
               <tbody id="inventarioTableBody"></tbody>
             </table>
           </div>
+          <div id="inventarioPaginacion" class="paginacion-row"></div>
         </div>
       </section>
 
@@ -565,6 +647,7 @@
               </table>
             </div>
             <p id="repEmptyState" class="empty-state hidden">No hay movimientos con esos filtros.</p>
+            <div id="reportesPaginacion" class="paginacion-row"></div>
           </div>
 
           <div class="panel lg:col-span-2" id="panelFirmas">
@@ -621,9 +704,9 @@
       <!-- ============ TRASLADOS ============ -->
       <section id="section-traslados" class="app-section">
         <div class="grid lg:grid-cols-5 gap-5">
-          <div class="panel lg:col-span-2 admin-only" id="panelNuevoTraslado">
-            <div class="panel-header"><p class="panel-title">Nuevo traslado entre sucursales</p></div>
-            <p class="text-xs text-slate-400 mt-1">Solo el Administrador genera remisiones. El stock recién se descuenta de la sucursal de origen cuando la sucursal destino confirme la recepción física.</p>
+          <div class="panel lg:col-span-2" id="panelNuevoTraslado">
+            <div class="panel-header"><p class="panel-title" id="trasladoPanelTitle">Nuevo traslado entre sucursales</p></div>
+            <p class="text-xs text-slate-400 mt-1" id="trasladoPanelSubtitle">Solo el Administrador genera remisiones. El stock recién se descuenta de la sucursal de origen cuando la sucursal destino confirme la recepción física.</p>
             <form id="trasladoForm" class="movement-form">
               <label class="form-label">Sucursal origen (envía)</label>
               <select id="trasladoOrigen" class="form-input" required></select>
@@ -662,7 +745,7 @@
 
               <button type="submit" class="btn-primary w-full justify-center mt-2">
                 <i data-lucide="truck" class="h-4 w-4"></i>
-                Generar remisión
+                <span id="trasladoSubmitBtnText">Generar remisión</span>
               </button>
             </form>
           </div>
@@ -693,6 +776,7 @@
               </table>
             </div>
             <p id="trasladosEmptyState" class="empty-state hidden">Todavía no se generaron traslados.</p>
+            <div id="trasladosPaginacion" class="paginacion-row"></div>
           </div>
 
           <!-- Recepción de un traslado puntual: se muestra al tocar "Recibir" en la tabla de arriba. -->
@@ -962,7 +1046,7 @@
         <div class="panel mt-5" style="border-color:#FCA5A5">
           <div class="panel-header"><p class="panel-title" style="color:#DC2626">Zona de riesgo</p></div>
           <p class="text-sm text-slate-500 mt-1 leading-relaxed">
-            Reiniciá el historial de entradas y salidas de tu negocio. No borra tus productos ni tu stock actual, solo el registro de movimientos. No se puede deshacer.
+            Reiniciá el historial de entradas, salidas y traslados de tu negocio. No borra tus productos ni tu stock actual, solo el registro de movimientos. No se puede deshacer.
           </p>
           <button type="button" id="reiniciarMovimientosBtn" class="btn-danger mt-3">
             <i data-lucide="trash-2" class="h-4 w-4"></i>
@@ -1051,6 +1135,17 @@
 <!-- ============ TOUR DE BIENVENIDA ============ -->
 <div id="tourBackdrop" class="tour-backdrop">
   <div id="tourSpotlight" class="tour-spotlight" aria-hidden="true"></div>
+
+  <div id="tourWelcomeBox" class="tour-welcome-box" role="dialog" aria-modal="true" aria-label="Bienvenida a Boxly">
+    <span class="tour-welcome-icon"><i data-lucide="sparkles"></i></span>
+    <h3 class="tour-welcome-title">¡Bienvenido a Boxly!</h3>
+    <p class="tour-welcome-desc">Te mostramos rápido dónde está cada cosa: productos, entradas y salidas, traslados y más. Son un par de minutos, y podés verlo después cuando quieras desde Ayuda y soporte.</p>
+    <div class="tour-welcome-actions">
+      <button id="tourWelcomeSkip" class="btn-secondary">Saltar</button>
+      <button id="tourWelcomeStart" class="btn-primary">Ver el recorrido <i data-lucide="arrow-right" class="h-4 w-4"></i></button>
+    </div>
+  </div>
+
   <div id="tourBox" class="tour-box" role="dialog" aria-modal="true" aria-label="Tour de bienvenida">
     <button id="tourSkip" class="tour-skip">Omitir</button>
     <div class="tour-icon-wrap">
@@ -1069,9 +1164,6 @@
 
     </div>
   </div>
-</div>
-<div id="tourDots" class="tour-dots">
-
 </div>
 
       
